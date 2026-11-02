@@ -78,6 +78,45 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
 - The fitter is single-threaded and slow on big boxes; performance options are
   documented in `plans/fit-speedups.md`.
 
+## Compute servers (prefer these for anything heavy)
+
+**Rule of thumb: fits, parallel region batches, and any job > ~10 min go on a
+server, not the laptop.** The laptop is for editing, fast tests, and
+derivation/probe scripts (seconds-scale).
+
+### nodeasb01 (CPU workhorse)
+
+- Access from the lab machine: `ssh nodeasb01` (key auth, user moblaende26).
+- **256 cores, 2 TB RAM, no GPU.** Run independent fits/regions in parallel
+  (`nohup .venv/bin/python server_fit.py <region> &`); do NOT serialize on it.
+- **Repo + data live at `/asbdata/moblaende26/zerniky/`** (100 TB NFS, plenty).
+  It is a *copy* of this repo (old package name `zernike_test`) — **sync before
+  working there**:
+  `rsync -av --exclude .venv --exclude '.git*' --exclude results_local --exclude 'GoC-*' \
+     ~/Documents/git_repos/sibilla/ nodeasb01:/asbdata/moblaende26/zerniky-sibilla/`
+  (then re-run `pip install -e . --no-deps` in the venv, or create a fresh one).
+- Data: `results/deconvolve/ch1_AF488_raw.tif` (196×1440×1920, ~1.08 GB),
+  `GoC-Exp4_C3_7.czi`, crops — already on the server, do not re-upload.
+- **Disks:** `/` is nearly full (~28 G) — never build/install/work there.
+  Use `/asbdata` or `/home`. venv: `<repo>/.venv` (python 3.14,
+  numpy/scipy/tifffile/matplotlib present).
+- **Long jobs:** `nohup … > run_logs/<name>.log 2>&1 &`, then check with
+  `pgrep -af` / `tail run_logs/*`. Two known footguns from 2026-10-30:
+  (1) `pgrep -f "pattern"` matches the *launcher shell's own command line* —
+  use a pattern that can't self-match (e.g. `chain_allrod[s]`);
+  (2) buffered stdout stays empty until the process exits — put a
+  heartbeat in the script or `python -u` if you need progress.
+- **Record the commit** the run used (`git rev-parse --short HEAD` into the
+  run log) so results stay reproducible.
+
+### nodeasb01g (GPU)
+
+- For GPU deconvolution / batched FFT work. **Not yet reachable from the lab
+  machine** (no ssh key installed) — set up once: add `~/.ssh/id_ed25519.pub`
+  to the node's authorized keys (or use the same key as nodeasb01).
+- Until then, treat GPU as "future"; the CPU server covers everything so far.
+  The `sibilla.deconvolve` CLI already has `--device gpu`.
+
 ## Handoff to a new agent (maintainer's standard prompt)
 
 > Work in `~/Documents/git_repos/sibilla`. Read `AGENTS.md` first. Branch off
