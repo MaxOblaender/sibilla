@@ -117,8 +117,10 @@ derivation/probe scripts (seconds-scale).
   (unlike nodeasb01), and `/asbdata` is the **same shared NFS** as on
   nodeasb01 — so `/asbdata/moblaende26/zerniky/` (repo copy + data) is
   visible from both nodes; no re-upload needed.
-- Use for GPU work: batched FFTs / `sibilla.deconvolve --device gpu`. Check
-  which GPU libs the venv has before assuming (cupy/torch/cuda not verified).
+- Use for GPU work: batched FFTs / `sibilla.deconvolve --device gpu`.
+  The shared venv **already has cupy-cuda12x 14.2** (verified 2026-11-02) —
+  batched small FFTs via CuPy is the natural GPU use case (see
+  `plans/fit-speedups.md` O5).
 - CPU fits run here too, but prefer nodeasb01 (256 cores) for pure CPU.
 
 ## Handoff to a new agent (maintainer's standard prompt)
