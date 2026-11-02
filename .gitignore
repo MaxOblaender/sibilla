@@ -11,8 +11,13 @@
 !/tests/
 !/scripts/
 !/README.md
+!/AGENTS.md
 !/pyproject.toml
 !/.gitignore
+
+# --- plans: default-ignored; a branch tracks a specific plan by negating it ---
+# (add lines like `!/plans/<topic>.md` on the branch that owns the plan)
+/plans/
 
 # --- never track, anywhere ---
 __pycache__/
