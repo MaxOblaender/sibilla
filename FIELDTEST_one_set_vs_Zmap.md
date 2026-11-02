@@ -70,6 +70,12 @@ n_multi_start=2 — the weekend parameters):
 Log: `weekend_logs/fieldtest/{R}.log`; completion marker:
 `weekend_logs/fieldtest/DONE`.
 
+Known quirks found during setup (2026-11-02):
+- New Fiji `.roi` layout: z-plane at byte 58 (old `RoiSet.zip`: byte 74).
+  Runner reads 58, falls back to 74.
+- Channel TIF pages are 2D (y,x); per-plane slicing is `[y0:y1, x0:x1]`.
+- Zeros-pad the box if the z-extend hits the channel edge (clamped 0/196).
+
 ## 4. How to read the results
 
 1. **Sanity:** derived capsules vs. the drawn lines (in the JSON); z
