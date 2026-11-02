@@ -84,6 +84,19 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
 server, not the laptop.** The laptop is for editing, fast tests, and
 derivation/probe scripts (seconds-scale).
 
+**From the laptop, `/asbdata` is NOT mounted.** Data, logs and results on the
+server are only reachable through ssh:
+
+```bash
+ssh nodeasb01  'cat /asbdata/moblaende26/zerniky/weekend_logs/merged.log'
+ssh nodeasb01g 'nvidia-smi'
+rsync -av nodeasb01:/asbdata/moblaende26/zerniky/weekend_logs/ ./weekend_logs/
+```
+
+Do not conclude "the logs/results are missing" from a local `ls` — check the
+server first. Both nodes share the same `/asbdata` NFS, so a file written on
+nodeasb01g is visible on nodeasb01 and vice versa.
+
 ### nodeasb01 (CPU workhorse)
 
 - Access from the lab machine: `ssh nodeasb01` (key auth, user moblaende26).
@@ -97,6 +110,10 @@ derivation/probe scripts (seconds-scale).
   (then re-run `pip install -e . --no-deps` in the venv, or create a fresh one).
 - Data: `results/deconvolve/ch1_AF488_raw.tif` (196×1440×1920, ~1.08 GB),
   `GoC-Exp4_C3_7.czi`, crops — already on the server, do not re-upload.
+- **cupy on nodeasb01 does NOT work** (no usable CUDA driver →
+  `cudaErrorInsufficientDriver`); the installed cupy-cuda12x only runs on
+  nodeasb01g. Confirm with `ssh nodeasb01g '.venv/bin/python -c "import cupy;
+  cupy.zeros(1)"'` before relying on it.
 - **Disks:** `/` is nearly full (~28 G) — never build/install/work there.
   Use `/asbdata` or `/home`. venv: `<repo>/.venv` (python 3.14,
   numpy/scipy/tifffile/matplotlib present).

@@ -28,6 +28,50 @@ Two facts that shape all options below:
 2. **Cost scales with box volume, not rod count.** Adding rods is cheap;
    enlarging the box is not.
 
+### 0.1 Week-end runs: what the input boxes actually were
+
+Source: nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/{fit_*.json,*.log}`,
+driver `server_fit.py` (`n_multi_start=2`, `max_nfev=150`, confocal model,
+7 z-candidates) — i.e. **3 starts × 3 outer sweeps**, and the per-rod z search.
+
+| run | padded box (nz×M×N) | rods | wall | s per Mvox |
+|---|---|---|---|---|
+| tright | 30×245×245 | 3 | 24.8 min | 826 |
+| region4 | 23×158×158 | 2 | 47.9 min | 5005 |
+| region6 | 35×536×536 | 2 | 108.9 min | 650 |
+| merged (old box) | 43×460×460 | 5 | 188.1 min | 1240 |
+| merged (99%-margin) | 43×551×551 | 5 | 288.0 min | 1324 |
+| region5 (99%-margin) | 52×893×893 | **2** | **364.3 min** | 527 |
+| region3 (old box) | 36×320×320 | 7 | 376.1 min | 6121 |
+| region3 (99%-margin) | 36×393×393 | 7 | 288.0 min | 3108 |
+
+Live status (2026-11-02): the region3 rerun was still running as of
+~14:00 server time (box 36×393×393, 7 rods, 99 %-margin) — no result yet.
+The `allrods` chained fit (22 rods, one box) was cancelled before it
+started: a single whole-field fit is both ~80 h and the wrong question if
+the field is aberration-varying (see §2.5 and `FIELDTEST_one_set_vs_Zmap.md`).
+Also measured 2026-11-02: the region3 process used ≈3.1 CPU cores in
+6.65 h wall (CPU time 20.7 h) — the NNLS/BLAS part IS threaded under
+OpenMP, so "one fit is single-threaded" below applies to the FFT/render
+loop, not to the linear algebra.
+
+Read-out (these overturn the "cost = box volume" assumption at small size):
+
+- **Time is NOT a clean function of volume alone** (s/Mvox spans 11×). The
+  cheap-per-voxel runs are the large boxes; the small-box fits (region4,
+  region3) cost far more *per voxel* — consistent with a near-constant,
+  eval-dominated overhead per fit (NNLS + PSF rebuild + renders) that only
+  amortises in big boxes.
+- **The 99 %-energy guard band is applied in X AND Y to the rod *bounding
+  rectangle*.** region5: 2 rods ~800 px apart → 893×893×52 box for two rods.
+  That is the single largest avoidable cost in the week-end set.
+- Rod count is **not** the driver: region5 (2 rods) took 364 min; region6
+  (2 rods) 109 min — the difference is box size, not rods.
+- Whole channel (196×1440×1920 = 542 Mvox, 4.3 GB float64): by extrapolation
+  of the large-box rate (~530 s/Mvox) one fit is **≈ 80 h** — and memory per
+  FFT component would be ~8.7 GB complex. Whole-field fitting is therefore a
+  *model* change (per-rod support), not a tuning change.
+
 ## 1. Options (ranked by win ÷ effort ÷ risk)
 
 ### O1 — Per-rod support cropping in `cyclic3d`  *(5–20×, ~50 lines, low risk)*
@@ -103,6 +147,43 @@ O1 is the foundation: it makes each rod's work small *and* independent, which is
 exactly what makes O3's parallelism and O5's batching efficient. Recommended
 order: **O1 → O2 → O3 → O4 → (O5 only if whole-field fits become routine).**
 Cumulatively O1–O4 give roughly **50–200×** with no new dependency.
+
+## 2.5 Open design question — *what is one fit?* (field-varying aberration)
+
+New constraint from the maintainer (2026-11-02): **the aberration differs
+across the field** (astigmatism varies with image location). That invalidates
+two implicit assumptions of the current tool:
+
+1. **One shared Z5–Z8 per input box.** `fit_3d` already assumes this; a box
+   spanning several aberration zones returns a meaningless average. Caveat:
+   the week-end per-region results (Z5 from +0.32 to −0.50) *look* like field
+   variation, but region3 also pinned at the ±0.5 bound, so today's numbers
+   cannot yet separate "field variation" from "unstable fit".
+2. **One fit over the whole field.** 542 Mvox × ~530 s/Mvox ≈ **80 h** *and*
+   it would fit one constant aberration to a varying field — so a giant box is
+   wrong for physics reasons, not only cost.
+
+Consequence that must be decided **before** any speed-up is designed:
+
+- **Crop grid ≠ arbitrary.** If Z(x,y) varies, the output is a *field map*
+  Z(x,y), and the crops should tile the field at a spacing set by the
+  aberration's spatial correlation length, with each tile's rods spread over
+  that tile (not clustered at its centre). Tile size then has two independent
+  bounds: **statistics** (enough rods × orientations to identify 4 modes) and
+  **stationarity** (the aberration is ~constant inside a tile).
+- Measuring the correlation length is a cheap, independent experiment:
+  fit on overlapping small tiles along x of the full channel, then look at how
+  Z5/Z6/Z7/Z8 decorrelate with distance. That single experiment answers "how
+  big may a tile be?" and "is the field really varying?" at once.
+- **Candidates for the tile geometry** (to be measured, not guessed):
+  - XY tile: 96–160 px (11–18 µm), i.e. ~5–8× the Airy radius; z: full
+    stack around the rods (needed for defocus identifiability), guard band
+    **per rod**, not per tile.
+  - Z window: must be several × the depth-of-field, and the 99 %-energy
+    guard band must be computed per rod (the current shared bbox margin is
+    what produced the 893² box for two rods).
+
+Until the correlation length is known, no crop size should be committed to.
 
 ## 3. Discipline (applies to every option)
 
