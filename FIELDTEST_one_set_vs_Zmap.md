@@ -93,11 +93,46 @@ Known quirks found during setup (2026-11-02):
 
 ## 5. Launch record
 
-- Launched: 2026-11-02 ~17:40 (server time), `nohup ./run_fieldtest_all.sh`.
+- Launched: 2026-11-02 ~18:05 (server time), `nohup ./run_fieldtest_all.sh`.
+  Region C needed one extra bugfix (z-search window at crop edge) and was
+  relaunched manually ~18:20; it joined the same log/JSON layout.
 - Dry run before launch: `run_fieldtest_matrix.py A DRY` → box 36×169×169,
   0.97 min, plumbing OK (fake 4-line zip).
 - Machine: nodeasb01 (256 cores; ~3 cores/region used → 12 of 256).
-- Resumable: finished jobs are skipped on re-run.
+- Processes are detached (`nohup`/`setsid`) — a laptop shutdown does not
+  affect them.
+- Resumable: finished jobs are skipped on re-run
+  (`nohup ./run_fieldtest_all.sh` again picks up unfinished jobs).
+
+## 5.1 Where the results are (check from the laptop)
+
+All on the server (not mounted locally — use ssh):
+
+| what | path |
+|---|---|
+| one JSON per fit (coeffs, cost, strehl, z-residuals, pinned flag, derived capsules) | `/asbdata/moblaende26/zerniky/weekend_logs/fieldtest/{A,B,C}_{full,full_1,half1,half2,pair}_{seed}.json` |
+| per-region log (derived lines, then one line per finished fit) | `/asbdata/moblaende26/zerniky/weekend_logs/fieldtest/{A,B,C}.log` |
+| completion marker (written when all 3 regions are done) | `/asbdata/moblaende26/zerniky/weekend_logs/fieldtest/DONE` |
+| launch log | `/asbdata/moblaende26/zerniky/weekend_logs/fieldtest/launch.log` |
+
+One-liners from the laptop:
+
+```bash
+# is it done?
+ssh nodeasb01 'cat /asbdata/moblaende26/zerniky/weekend_logs/fieldtest/DONE 2>/dev/null || echo still running'
+
+# progress (last fit result per region)
+ssh nodeasb01 'tail -2 /asbdata/moblaende26/zerniky/weekend_logs/fieldtest/{A,B,C}.log'
+
+# pull all results to the laptop
+rsync -av nodeasb01:/asbdata/moblaende26/zerniky/weekend_logs/fieldtest/ \
+    ~/Documents/git_repos/sibilla/weekend_logs/
+```
+
+Expected: 5 fits per region (full × seeds 0,1; half1; half2; pair) = 15
+JSONs. `full` fits are the ones that matter for ε; the rest give σ and
+bias checks. If fewer JSONs exist, check the corresponding `{R}.log` for
+tracebacks and re-run `./run_fieldtest_all.sh` (resumable).
 
 ## 6. Results (fill in when done)
 
