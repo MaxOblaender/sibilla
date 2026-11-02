@@ -124,6 +124,7 @@ class TestFitEnsemble:
                 "name": name, "pixel_size_um": 0.1135, "z_step_um": 0.5,
                 "lambda_um": 0.517, "na": 1.2, "n_im": 1.33,
                 "fluorescent_diameter_um": 0.65, "skeleton": seg.tolist(),
+                "n_segments": len(seg),
                 "z_planes_um": z_planes.tolist(), "nominal_budget": 4500.0,
                 "_data": stack,
             })
