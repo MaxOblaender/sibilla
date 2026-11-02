@@ -124,6 +124,9 @@ ssh nodeasb01 'cat /asbdata/moblaende26/zerniky/weekend_logs/fieldtest/DONE 2>/d
 # progress (last fit result per region)
 ssh nodeasb01 'tail -2 /asbdata/moblaende26/zerniky/weekend_logs/fieldtest/{A,B,C}.log'
 
+# the still-running region3 rerun (see below)
+ssh nodeasb01 'ps -o pid,etime,cmd -p 3703039 2>/dev/null || echo region3-finished; tail -1 /asbdata/moblaende26/zerniky/weekend_logs/rerun_region3.log'
+
 # pull all results to the laptop
 rsync -av nodeasb01:/asbdata/moblaende26/zerniky/weekend_logs/fieldtest/ \
     ~/Documents/git_repos/sibilla/weekend_logs/
@@ -133,6 +136,25 @@ Expected: 5 fits per region (full × seeds 0,1; half1; half2; pair) = 15
 JSONs. `full` fits are the ones that matter for ε; the rest give σ and
 bias checks. If fewer JSONs exist, check the corresponding `{R}.log` for
 tracebacks and re-run `./run_fieldtest_all.sh` (resumable).
+
+**Also still running: the region3 rerun** (started 2026-10-30, box
+36×393×393, 7 rods, 99 %-margin — the one that last pinned Z5/Z6/Z8 at
+−0.5). PID 3703039, ~8 h 19 min as of 2026-11-02 18:25, no result yet.
+Check it with:
+
+```bash
+ssh nodeasb01 'ps -o pid,etime,cputime,cmd -p 3703039 2>/dev/null || echo region3 finished
+tail -3 /asbdata/moblaende26/zerniky/weekend_logs/rerun_region3.log'
+```
+
+When it finishes it writes `weekend_logs/fit_region3.json` (coeffs +
+per-rod z residual). **Caveat:** the file that exists on disk right now
+is the *old* Oct-30 result (376 min, pre-guard 320² box, pinned at −0.5)
+— the rerun overwrites it, so read it only after `region3 finished` or
+after the JSON's mtime is newer than the fieldtest launch. If it pins at
+the bound again with the 99 %-margin box, the box-guard hypothesis for
+the region3 failure is dead and the cause is in the statistics /
+field-variation side (this test).
 
 ## 6. Results (fill in when done)
 
