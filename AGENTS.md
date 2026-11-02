@@ -111,11 +111,15 @@ derivation/probe scripts (seconds-scale).
 
 ### nodeasb01g (GPU)
 
-- For GPU deconvolution / batched FFT work. **Not yet reachable from the lab
-  machine** (no ssh key installed) — set up once: add `~/.ssh/id_ed25519.pub`
-  to the node's authorized keys (or use the same key as nodeasb01).
-- Until then, treat GPU as "future"; the CPU server covers everything so far.
-  The `sibilla.deconvolve` CLI already has `--device gpu`.
+- Access: `ssh nodeasb01g` (key auth, user moblaende26 — `~/.ssh/config`
+  entry added 2026-11-02; the same key is in the node's `authorized_keys`).
+- **128 cores, ~1 TB RAM, 4× NVIDIA A40 (46 GB each).** `/` has ~175 G free
+  (unlike nodeasb01), and `/asbdata` is the **same shared NFS** as on
+  nodeasb01 — so `/asbdata/moblaende26/zerniky/` (repo copy + data) is
+  visible from both nodes; no re-upload needed.
+- Use for GPU work: batched FFTs / `sibilla.deconvolve --device gpu`. Check
+  which GPU libs the venv has before assuming (cupy/torch/cuda not verified).
+- CPU fits run here too, but prefer nodeasb01 (256 cores) for pure CPU.
 
 ## Handoff to a new agent (maintainer's standard prompt)
 
