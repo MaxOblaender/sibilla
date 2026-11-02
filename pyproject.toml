@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sibilla"
+version = "0.2.0"
+description = "SIBILLA (Python): blind Zernike aberration recovery from 3D microscopy stacks — successor to Zoltan Cseresnyes' C# SIBILLA"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "tifffile>=2023.1.23",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+data = ["czifile>=2026.10.14", "scikit-image>=0.22"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

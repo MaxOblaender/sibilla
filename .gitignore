@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# Whitelist style: everything in this folder is data/results/tooling
+# (~40 GB of imaging data lives here next to the code). Only the entries
+# below are tracked; all else — CZI, TIF, results, notes, venv, extras —
+# stays on disk but untracked.
+# ---------------------------------------------------------------------------
+/*
+
+# --- tracked: code + tests + workflow scripts + packaging/docs ---
+!/src/
+!/tests/
+!/scripts/
+!/README.md
+!/pyproject.toml
+!/.gitignore
+
+# --- never track, anywhere ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
