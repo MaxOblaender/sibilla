@@ -145,17 +145,27 @@ region3 (7 rods, best coverage) was the first to do so.
 
 ### 5.1 Decisive diagnostic (first, cheap)
 
-Re-run the 3 `full` jobs × 2 seeds on **nodeasb01g** (idle, 128 cores;
-`/asbdata` shared, no re-upload) with, relative to the original runner:
+**Launched 2026-11-03 12:44 UTC on nodeasb01g** (nodeasb01 reserved by a
+coworker; 01g idle, 128 cores). 3 `full` jobs × 2 seeds, in parallel,
+`nohup`'d, resumable. Config (server runner `run_fieldtest_diag.py`):
 
-- `bounds = (−1.5, 1.5)` waves (temporarily; make configurable in-package
-  first — see 5.2),
+- `coeff_bound = 1.5` (new `FitInput3D` field, commit `50f2aed`; the
+  hardcoded ±0.5 is now the default, so existing physics tests are
+  untouched; new `TestCoeffBound` guard pins this mechanism in the suite),
 - `z_candidate_um = −3 … +3` (13 candidates, 0.5 µm steps),
-- everything else identical (same crops, same derived capsules, same box
-  rule) so the only differences are the two limits.
+- everything else identical to `run_fieldtest_matrix.py` (same crops, same
+  derived capsules — verified in the launch logs — same box rule).
+- Server fitter: `zernike_test/fit.py` md5 `89df1222…` = local `sibilla`
+  commit `50f2aed`; original backed up as `fit.py.bak_20261103_123221`.
 
-6 fits × ~50 min ≈ 8 h wall if serialized — but they are independent, so
-~3 in parallel → **~2.5 h**, `nohup`'d, commit hash logged.
+Outputs: `weekend_logs/fieldtest_diag/{A,B,C}_full_{0,1}.json` + per-region
+logs + `DONE` marker (written by a watcher; `ABORTED` if processes die
+early). Original `weekend_logs/fieldtest/` is untouched.
+
+Re-run spec (what the launch implements): 3 `full` jobs × 2 seeds on
+**nodeasb01g** (`/asbdata` shared, no re-upload) with, relative to the
+original runner: only the two limits above changed, so the comparison vs
+`weekend_logs/fieldtest/` is clean.
 
 **Interpretation:**
 - coefficients come off the bound, stable across seeds, **coherent pattern
