@@ -95,6 +95,48 @@ axial peak; figures on the server in `diag_review/`):
   z *and* clean rods, the bound/model suspicion is revived (and region3,
   which had correct z, is the reference case).
 
+### Handoff checklist (for a new agent; state as of 15:50 UTC 2026-11-03)
+
+- **Access:** from the laptop, only `nodeasb01g` is reachable (key auth
+  via `~/.ssh/config`, `IdentityFile ~/.ssh/id_ed25519`, user
+  `moblaende26`; GitHub token in `~/.git-credentials`). `nodeasb01` is
+  reserved by a coworker / firewall-blocked — do NOT schedule there.
+  Both nodes share the `/asbdata` NFS.
+- **Run state:** 3 detached `nohup` processes (A 3527375, B 3527376,
+  C 3526829) + a watcher, launched 15:06–15:10 UTC 2026-11-03. If this
+  list is stale, re-check with `ps -eo pid,etime,cmd | grep
+  run_fieldtest_di[a]g`.
+- **Check progress** (one-liners from the laptop):
+  ```bash
+  ssh nodeasb01g 'cat /asbdata/moblaende26/zerniky/weekend_logs/fieldtest_diag/DONE 2>/dev/null || echo running'
+  ssh nodeasb01g 'cd /asbdata/moblaende26/zerniky/weekend_logs/fieldtest_diag && ls *.json; for R in A B C; do printf "%s: " $R; tail -1 ${R}_diag.log; done'
+  ```
+- **When results exist, read them** (per JSON: `coeffs`, `pinned` at
+  ±1.5, `pinned05`, `seg_z_um` — z-residuals should no longer saturate
+  the ±3 µm edge; `excluded` lists the bad-z rods):
+  ```bash
+  ssh nodeasb01g 'cd /asbdata/moblaende26/zerniky/weekend_logs/fieldtest_diag && python3 -c "
+  import json,glob
+  for f in sorted(glob.glob(\"*.json\")):
+      d=json.load(open(f)); c=d[\"coeffs\"]
+      print(f, d[\"n_rods\"], {k:round(v,3) for k,v in c.items()}, d[\"pinned\"], d[\"seg_z_um\"])"'
+  ```
+- **Decision tree** (then write up + decide next steps per "Revised
+  follow-up order" above):
+  - off-bound + seed-stable (±~0.05 w) + coherent A/B/C pattern → z-bug
+    was the pinning cause; re-do the ε/σ field comparison (original
+    question answerable; `full` jobs are the ε/σ inputs, `full_clean`
+    the contamination check);
+  - off-bound but seed-scattered → 9-rod tiles under-determined at our
+    SNR → more/wider tiles;
+  - still pinned at ±1.5 (correct z, clean rods) → bound/model suspect
+    revived → §5.3 probes; compare against region3 (correct z, pinned at
+    ±0.5: reference case that the bug does NOT explain).
+- **Resume/abort:** runner skips existing JSONs (re-run
+  `.venv/bin/python -u run_fieldtest_diag.py ALL` from
+  `/asbdata/moblaende26/zerniky` on nodeasb01g); the watcher writes
+  `ABORTED` if all processes die early (check `watcher.log`).
+
 ### Revised follow-up order
 
 1. Wait for the corrected 8 fits (~2–3 h).

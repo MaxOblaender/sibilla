@@ -76,8 +76,9 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   A/B/C fits (2026-11-02) *also* all pinned, but a 2026-11-03 audit found
   their throwaway runner had a **z-derivation bug** (every interior rod
   placed 2–9 µm too high) → those fits are confounded; a corrected 8-fit
-  run is on nodeasb01g. Status + interpretation rules:
-  `FIELDTEST_results_one_set_vs_Zmap.md` (branch `feat/fit-speedups`).
+  run is on nodeasb01g. Status + interpretation rules + **handoff
+  checklist** (how to check the run, decision tree):
+  `FIELDTEST_results_one_set_vs_Zmap.md` §8 (branch `feat/fit-speedups`).
   The 99%-energy margin fix exists in `scripts_extras/rod_fit*` / server
   runs but is NOT yet in the package. Weekend fit logs:
   nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/`.
