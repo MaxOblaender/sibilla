@@ -4,7 +4,7 @@ Design (ensemble principle):
 
 - OUTER: nonlinear least squares over the 4 shared Zernike coefficients
   (Z5, Z6, Z7, Z8) using `scipy.optimize.least_squares` (numerical
-  Jacobian), bounds ±0.5 RMS waves, multi-start (zero + k random).
+  Jacobian), bounds ±coeff_bound RMS waves (default 0.5), multi-start (zero + k random).
 - INNER (given a PSF candidate): per-segment amplitudes (one scalar per
   tubule) and ONE shared background, solved exactly by non-negative
   least squares (`scipy.optimize.nnls`) — variable projection: for a
@@ -62,6 +62,7 @@ class FitInput:
     loss: str = "linear"                    # "linear" | "soft_l1"
     n_multi_start: int = 4                  # random starts beyond the zero start
     start_range: float = 0.2                # random starts uniform in ±start_range
+    coeff_bound: float = 0.5                # |Z| ≤ bound waves (default ±0.5)
     max_nfev: int = 200
     rng_seed: int = 0
     supersample: int = 8                    # scene supersampling (for O_s render)
@@ -283,7 +284,7 @@ def fit(fit_in: FitInput) -> FitResult:
     masks = _build_roi_masks(fit_in.skeleton, fit_in.data.shape[1:],
                              fit_in.roi_radius_um, config.pixel_size)
     npar = len(modes)
-    bounds = (-0.5, 0.5)
+    bounds = (-fit_in.coeff_bound, fit_in.coeff_bound)
 
     rng = np.random.default_rng(fit_in.rng_seed)
     starts = [np.zeros(npar)]
@@ -367,6 +368,7 @@ class FitInput3D:
     loss: str = "linear"
     n_multi_start: int = 1          # smooth 4-param problem; zero start only
     start_range: float = 0.2
+    coeff_bound: float = 0.5        # |Z| ≤ bound waves (default ±0.5 pinned)
     max_nfev: int = 200
     rng_seed: int = 0
     n_cd_sweeps: int = 2
@@ -448,8 +450,8 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     equivalently defocusing its PSF by d_s·z_step — so candidate search is
     cheap (one NNLS on precomputed blurred columns per candidate).
 
-    OUTER: least_squares over the shared Zernike coeffs (bounds ±0.5,
-    multi-start). INNER: per-segment z-candidate coordinate descent +
+    OUTER: least_squares over the shared Zernike coeffs (bounds ±coeff_bound,
+    default 0.5 waves, multi-start). INNER: per-segment z-candidate coordinate descent +
     weighted per-plane-background NNLS (variable projection).
     """
     from .scene import CapsuleSpec, render_capsule_unit
@@ -464,7 +466,7 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     z_plane_int = np.array([int(round(z / z_step))
                             for z in fit_in.z_candidate_um])
     z_mid = int(np.argmin(np.abs(z_plane_int)))   # index of the 0-offset candidate
-    bounds = (-0.5, 0.5)
+    bounds = (-fit_in.coeff_bound, fit_in.coeff_bound)
     rng = np.random.default_rng(fit_in.rng_seed)
     npar = len(modes)
     starts = [np.zeros(npar)]
@@ -681,7 +683,8 @@ def fit_from_real_files(stack: np.ndarray, meta: dict,
         modes=tuple(meta.get("modes", REAL_MODES)),
         roi_radius_um=float(meta.get("roi_radius_um", 1.5)),
         z_candidate_um=tuple(meta.get("z_candidate_um",
-                                      Z_CANDIDATE_GRID_UM)),
+                                       Z_CANDIDATE_GRID_UM)),
+        coeff_bound=float(meta.get("coeff_bound", 0.5)),
         max_nfev=max_nfev,
     )
     return fit_3d(fit_in)
