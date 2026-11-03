@@ -160,10 +160,11 @@ field-variation side (this test).
 
 All 15 fits finished (DONE marker 2026-11-02 20:27 CET); the region3
 99 %-margin re-run finished 2026-11-03 06:15 UTC.
-**Summary: all 16 fits pinned at the ±0.5-wave bound; the guard-band
-hypothesis for region3 is dead; the A-vs-B comparison is impossible with
-pinned values. Full analysis and the follow-up plan:**
-`FIELDTEST_results_one_set_vs_Zmap.md` (2026-11-03).
+**Analysis, follow-up plan, and the 2026-11-03 update (z-derivation bug in
+this run's runner — all 15 fits confounded, corrected 8-fit run in
+progress):** `FIELDTEST_results_one_set_vs_Zmap.md`.
+**Note:** the weekend region fits (incl. region3) used `server_fit.py`,
+whose z-derivation is correct — only this field-test runner was affected.
 
 ## 7. Follow-ups (decision-dependent)
 

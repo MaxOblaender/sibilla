@@ -1,26 +1,126 @@
 # Field-test results — what the A/B/C fits tell us (2026-11-03)
 
 Companion to `FIELDTEST_one_set_vs_Zmap.md` (protocol, §6 results now filled by
-this doc). Status: **data complete, interpretation + follow-ups.** All numbers
-read from the 15 JSONs in `weekend_logs/fieldtest/` on the shared server
-(`/asbdata/moblaende26/zerniky/`), plus the region3 re-run
-(`weekend_logs/rerun_region3.log` + `fit_region3.json`).
+this doc). Status: **2026-11-03 UPDATE: a z-derivation bug in the field-test
+runner was found and fixed; ALL 15 field-test fits are confounded and the
+corrected 8-fit run is in progress (§8).** Everything below §8 is the
+original analysis — kept for the record, but its main conclusion (large
+aberration) is retracted.
 
 Fitter: server copy `zernike_test` (`fit.py` md5
-`4fcb3e0c8b910f6677a603b054b3905e`, **same commit as this branch**),
-`fit_3d`, confocal model, 7 z-candidates (−1.5 … +1.5 µm, 0.5 µm steps),
-`n_multi_start=2`, `max_nfev=150`.
+`4fcb3e0c8b910f6677a603b054b3905e`, **same commit as this branch** for the
+original field test; `89df1222…` = commit `50f2aed` for the diagnostic),
+`fit_3d`, confocal model, `n_multi_start=2`, `max_nfev=150`.
 
 ---
 
-## 1. TL;DR
+## 8. STATUS UPDATE 2026-11-03 (post-launch): the z-derivation bug
+
+While the first diagnostic run was in flight, a per-rod verification
+(axial intensity profile at each derived capsule vs. the stored z) revealed
+a **one-line bug in the throwaway field-test runner's `derive()`**:
+
+```python
+za = find_z(sA, ax, ay, zc - zlo)   # BUG: z_guess must be the window-center
+                                    # plane in ABSOLUTE crop coords
+```
+
+`find_z` returns `z_guess + (sharpest_offset_from_window_center)`. The 7-
+plane window `sA` starts at crop plane `zlo` (center = `zlo + 3`). Passing
+`z_guess = zc − zlo` (= 3 for interior rods) makes the stored z a
+*window-local* value, off from the true crop plane by `(zc − 3)` — i.e.
+**every interior rod was placed 2–9 µm ABOVE its real depth**.
+
+Verified rod-by-rod on all three regions: for every interior rod
+`stored_cz = true_cz − (zc − 3)` holds exactly, and `true_cz` (recomputed)
+matches the full-crop axial-profile argmax within ±2 planes for 23/27 rods.
+
+### Impact — retracted / revised conclusions
+
+- **All 15 field-test fits, and the first diagnostic launch, are
+  confounded.** Each rod carried up to ~9 µm of unmodeled defocus (≈ 6× the
+  fitter's ±1.5 µm z-search, ≈ 3× the diagnostic's ±3 µm). Per
+  `SUPERVISOR_one_set_vs_Zmap.md` §6, unmodeled defocus leaks into Z5–Z8 —
+  and a *uniform* bound-pinning with seed-flipping signs is exactly what a
+  systematic z bias produces.
+- **§3.1's "the aberration is ≥ 0.5 waves" is RETRACTED.** It was measured
+  on fits with systematically wrong rod depths. Current knowledge: the
+  aberration magnitude is *unmeasured*.
+- **C's "stable Z7/Z8 ≈ 0" structure is suspect** — possibly an artifact of
+  the z bias.
+- **The weekend region fits are NOT affected.** They ran via
+  `server_fit.py`, whose `find_z` is called with the window centered at
+  `zc` and `z_guess = zc` (correct). **region3's pinning at ±0.5 therefore
+  remains a real, unexplained problem** (now with correct z as a further
+  check: it pins even though its z was right).
+- **The first diagnostic result (C_full_0, pinned at ±1.5 with z-residuals
+  saturating the new ±3 µm edge) is no longer clean evidence** that the
+  bound/z-window are still too narrow — the z bug alone can produce it.
+
+### Rod-selection check (the question that triggered this)
+
+Per-rod review (brightness, lateral peak offset, neighbor clumps, length,
+axial peak; figures on the server in `diag_review/`):
+
+- **The drawn lines are mostly fine** — lateral offsets ≤ ~10 px (mask is
+  ~13 px wide), lengths match, nothing saturated.
+- **4 of 27 rods are bad** even after the z fix: **A r4, A r6, B r5, B r8**
+  — the drawn line sits on a shallower dimmer rod while a brighter peak is
+  6–18 planes away (line on the wrong rod, or rod too dim: A r4 SNR 2.0).
+- Region C's rods are all good after the fix.
+
+### Corrected run (in progress, nodeasb01g)
+
+- First diagnostic launch (12:44 UTC, buggy z + wide bound) **aborted at
+  ~2.3 h** after the bug was found; only `C_full_0` completed. Preserved
+  (NOT deleted) in `weekend_logs/fieldtest_diag_buggy_z/` with
+  `PROVENANCE.txt`.
+- **Corrected relaunch, 15:06→15:10 UTC**, wide limits kept
+  (±1.5 waves, 13 z-candidates) — 8 fits:
+  - A, B: `full` × seeds 0,1 (**all 9 rods** — directly comparable to the
+    original field test, only z corrected) **plus** `full_clean` seed 0
+    (7 rods, the 4 bad-z rods excluded);
+  - C: `full` × seeds 0,1 (no exclusions). C has run since 15:06 (its
+    job list is identical in both runner versions).
+  - Resumable; watcher writes `DONE`/`ABORTED` + `watcher.log`; original
+    `weekend_logs/fieldtest/` untouched.
+  - One mishap: the first fixed-z launch (15:06) had a rod-set bug in its
+    own job design (A/B `full` jobs ran with 7 instead of 9 rods); killed
+    at 15:09 before any JSON was written (partial logs preserved in the
+    archive dir), A/B restarted at 15:10 on the corrected runner
+    (md5 `8a4806dc`).
+- **The design now isolates z:** buggy-z + wide bound (archived C_full_0)
+  vs corrected-z + wide bound (running). If the corrected fits come off the
+  bound, the pinning was the z bug; if they still pin at ±1.5 with correct
+  z *and* clean rods, the bound/model suspicion is revived (and region3,
+  which had correct z, is the reference case).
+
+### Revised follow-up order
+
+1. Wait for the corrected 8 fits (~2–3 h).
+2. **If off-bound and stable across seeds:** re-do the ε/σ field
+   comparison with corrected z (the original question is finally
+   answerable), then proceed to §6.
+3. **If still pinned:** probe with corrected z (region3 as reference —
+   correct z, still pinned), consider the bound once more, then
+   capsule/width/model probes (§5.3).
+4. O1 (per-rod support cropping, `plans/fit-speedups.md`) remains the next
+   big perf item — it makes every iteration of 2–3 above 5–20× cheaper.
+
+---
+
+## 1. TL;DR (ORIGINAL analysis — superseded by §8)
 
 - **All 16 fits hit the ±0.5-wave coefficient bound** — the 15 field-test fits
   plus the region3 re-run. Nothing is a clean number anymore.
-- **The guard-band hypothesis for region3 is dead.** The re-run with the
-  99 %-energy margin box (36×393×393, 7 rods, 1313 min, finished 06:15 UTC
-  2026-11-03) pinned Z5/Z6/Z8 at −0.500 again. Bigger box did not help →
-  the cause is not cyclic-z wrap at the box edge.
+- **⚠ SUPERSEDED (§8): the field-test runner had a z-derivation bug** — every
+  interior rod was placed 2–9 µm above its real depth, so the field-test
+  pinning (and the "aberration ≥ 0.5 waves" conclusion below) is an artifact.
+  The weekend region fits (incl. region3) used a *correct* runner and are not
+  affected.
+- **The guard-band hypothesis for region3 is dead** (still valid): the
+  99 %-energy margin re-run pinned Z5/Z6/Z8 at −0.500 again — so region3's
+  pinning is real (correct z) and points at statistics/model, not the box.
 - **The A-vs-B comparison the test was designed for is impossible** with these
   results: pinned coefficients have no trustworthy sign or magnitude (a pinned
   value only says "the fit *wants* ≥ 0.5 waves in some direction").
@@ -145,27 +245,27 @@ region3 (7 rods, best coverage) was the first to do so.
 
 ### 5.1 Decisive diagnostic (first, cheap)
 
-**Launched 2026-11-03 12:44 UTC on nodeasb01g** (nodeasb01 reserved by a
-coworker; 01g idle, 128 cores). 3 `full` jobs × 2 seeds, in parallel,
-`nohup`'d, resumable. Config (server runner `run_fieldtest_diag.py`):
+**Superseded by §8 (2026-11-03): the first launch of this diagnostic
+(12:44 UTC, nodeasb01g) ran on the buggy z-derivation and was aborted after
+`C_full_0` (preserved in `weekend_logs/fieldtest_diag_buggy_z/`). The
+corrected relaunch (15:13 UTC, 8 fits, ±1.5 waves, 13 z-cands, full × 2 +
+full_clean) is described in §8 with its design rationale. The original spec
+follows, for reference.**
+
+Re-run the 3 `full` jobs × 2 seeds on **nodeasb01g** (idle, 128 cores;
+`/asbdata` shared, no re-upload) with, relative to the original runner:
 
 - `coeff_bound = 1.5` (new `FitInput3D` field, commit `50f2aed`; the
   hardcoded ±0.5 is now the default, so existing physics tests are
   untouched; new `TestCoeffBound` guard pins this mechanism in the suite),
 - `z_candidate_um = −3 … +3` (13 candidates, 0.5 µm steps),
 - everything else identical to `run_fieldtest_matrix.py` (same crops, same
-  derived capsules — verified in the launch logs — same box rule).
+  derived capsules, same box rule).
 - Server fitter: `zernike_test/fit.py` md5 `89df1222…` = local `sibilla`
   commit `50f2aed`; original backed up as `fit.py.bak_20261103_123221`.
 
 Outputs: `weekend_logs/fieldtest_diag/{A,B,C}_full_{0,1}.json` + per-region
-logs + `DONE` marker (written by a watcher; `ABORTED` if processes die
-early). Original `weekend_logs/fieldtest/` is untouched.
-
-Re-run spec (what the launch implements): 3 `full` jobs × 2 seeds on
-**nodeasb01g** (`/asbdata` shared, no re-upload) with, relative to the
-original runner: only the two limits above changed, so the comparison vs
-`weekend_logs/fieldtest/` is clean.
+logs + `DONE` marker. Original `weekend_logs/fieldtest/` is untouched.
 
 **Interpretation:**
 - coefficients come off the bound, stable across seeds, **coherent pattern

@@ -70,12 +70,13 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   = one binary `.roi` per ROI (132–156 bytes, `Iout` v0): 4× big-endian float32
   line endpoints at byte 18, int16 z-plane at byte 74, name in the trailing
   bytes. Parser example: `scripts_extras/rod_probe.py`. z IS stored.
-- **Current fit-quality issues (open):** fits pin at the ±0.5-wave bound —
-  region3 (twice, including the 99 %-margin box re-run of 2026-10-30→11-03,
-  which ruled out the cyclic-z guard band) and *all 15* field-test A/B/C
-  fits of 2026-11-02. Working hypothesis: the hardcoded ±0.5 bound and the
-  ±1.5 µm z-candidate window are too narrow for the (possibly large,
-  field-varying) aberration; details + decisive follow-up run in
+- **Current fit-quality issues (open):** fits pin at the ±0.5-wave bound.
+  region3 did so TWICE with correct rod-z (incl. the 99 %-margin box
+  re-run, 2026-11-03) → a real, unexplained problem. The 15 field-test
+  A/B/C fits (2026-11-02) *also* all pinned, but a 2026-11-03 audit found
+  their throwaway runner had a **z-derivation bug** (every interior rod
+  placed 2–9 µm too high) → those fits are confounded; a corrected 8-fit
+  run is on nodeasb01g. Status + interpretation rules:
   `FIELDTEST_results_one_set_vs_Zmap.md` (branch `feat/fit-speedups`).
   The 99%-energy margin fix exists in `scripts_extras/rod_fit*` / server
   runs but is NOT yet in the package. Weekend fit logs:
