@@ -70,11 +70,16 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   = one binary `.roi` per ROI (132–156 bytes, `Iout` v0): 4× big-endian float32
   line endpoints at byte 18, int16 z-plane at byte 74, name in the trailing
   bytes. Parser example: `scripts_extras/rod_probe.py`. z IS stored.
-- **Current fit-quality issues (open):** cluster fits can be unstable —
-  region3 pinned at the ±0.5-wave bound, suspected cause: cyclic-FFT box guard
-  band too small (2 µm fixed vs ~7 µm needed). The 99%-energy margin fix
-  exists in `scripts_extras/rod_fit*` / server runs but is NOT yet in the
-  package. Weekend fit logs: nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/`.
+- **Current fit-quality issues (open):** fits pin at the ±0.5-wave bound —
+  region3 (twice, including the 99 %-margin box re-run of 2026-10-30→11-03,
+  which ruled out the cyclic-z guard band) and *all 15* field-test A/B/C
+  fits of 2026-11-02. Working hypothesis: the hardcoded ±0.5 bound and the
+  ±1.5 µm z-candidate window are too narrow for the (possibly large,
+  field-varying) aberration; details + decisive follow-up run in
+  `FIELDTEST_results_one_set_vs_Zmap.md` (branch `feat/fit-speedups`).
+  The 99%-energy margin fix exists in `scripts_extras/rod_fit*` / server
+  runs but is NOT yet in the package. Weekend fit logs:
+  nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/`.
 - The fitter is single-threaded and slow on big boxes; performance options are
   documented in `plans/fit-speedups.md`.
 

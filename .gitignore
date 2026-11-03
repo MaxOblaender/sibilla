@@ -32,3 +32,4 @@ plans/*
 # one-set vs Z(x,y)-map decision docs (tracked on this branch)
 !/FIELDTEST_one_set_vs_Zmap.md
 !/SUPERVISOR_one_set_vs_Zmap.md
+!/FIELDTEST_results_one_set_vs_Zmap.md

@@ -156,9 +156,14 @@ the bound again with the 99 %-margin box, the box-guard hypothesis for
 the region3 failure is dead and the cause is in the statistics /
 field-variation side (this test).
 
-## 6. Results (fill in when done)
+## 6. Results
 
-*pending*
+All 15 fits finished (DONE marker 2026-11-02 20:27 CET); the region3
+99 %-margin re-run finished 2026-11-03 06:15 UTC.
+**Summary: all 16 fits pinned at the ±0.5-wave bound; the guard-band
+hypothesis for region3 is dead; the A-vs-B comparison is impossible with
+pinned values. Full analysis and the follow-up plan:**
+`FIELDTEST_results_one_set_vs_Zmap.md` (2026-11-03).
 
 ## 7. Follow-ups (decision-dependent)
 
