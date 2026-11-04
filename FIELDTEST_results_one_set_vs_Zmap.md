@@ -95,10 +95,13 @@ axial peak; figures on the server in `diag_review/`):
   z *and* clean rods, the bound/model suspicion is revived (and region3,
   which had correct z, is the reference case).
 
-### Progress snapshot (2026-11-04 07:40 UTC) — 4/8 fits done, all still pinned
+### Progress snapshot (2026-11-04 14:20 UTC) — 5/8 fits done, all still pinned
 
-C is complete; A and B are on their second full seed (wall ≈ 9.5 h per
-full fit, so expect A/B seed1 + full_clean during the day of 2026-11-04):
+C is complete; **B full s1 finished 07:54 UTC and is bit-identical to
+s0** (same cost to the integer, same z-residuals — under a shared-
+coefficient fit with reset z-state this is a fixed point, not evidence
+of seed stability, see the caveat below). A is on its second full seed,
+B is on `full_clean`:
 
 | job | Z5, Z6, Z7, Z8 (waves) | pinned / pinned05 | z-residuals (µm) |
 |---|---|---|---|
@@ -106,7 +109,8 @@ full fit, so expect A/B seed1 + full_clean during the day of 2026-11-04):
 | C full s1 (188 min) | +1.5, +1.5, +0.011, +0.076 | yes / yes | identical to s0 (exact) |
 | A full s0 (568 min) | −1.5, −1.5, +0.821, −0.140 | yes / yes | ±3.0 on 3/9 rods; bad-z r6 at 2.5 |
 | B full s0 (548 min) | −0.039, +1.5, +1.5, −0.389 | yes / yes | ±3.0 on 1/9 rods (bad-z r5); r7 at 2.5 |
-| A full s1, A full_clean, B full s1, B full_clean | — running — | | |
+| B full s1 (457 min) | −0.039, +1.5, +1.5, −0.389 | yes / yes | **identical to s0 (bit-exact)** |
+| A full s1, A full_clean, B full_clean | — running — | | |
 
 Interim read (per the decision tree below): C's **seeds agree exactly**
 (seed stability is good), but the fits do **not** come off the ±1.5 bound
@@ -152,6 +156,44 @@ the bound, not the data demanding large aberration. Consequences:
   perfect capsule model leaves 35 % (C) / 67 % (A,B) of tube signal
   unexplained; `resid_{A,B,C}.tif` are scrollable 3D maps of it.
   Figures: `csweep_figure.png`.
+
+### Runs in flight on nodeasb01g (2026-11-04 14:20 UTC — update when stale)
+
+All throwaway runners live in `/asbdata/moblaende26/zerniky/` on
+nodeasb01g (NOT in git — `# THROWAWAY` convention); outputs under
+`weekend_logs/`. Check with: `tmux ls`,
+`ls weekend_logs/{z_sweep,c3probe,resid_probe}/*.json`,
+`tail weekend_logs/*/launch.log`.
+
+| tmux session | script | job | since |
+|---|---|---|---|
+| `c3probe` | `run_c3probe.py` | C3 z3_b15 (3 clean C rods, ±3 µm z, bound 1.5), then z0_b5 | 09:03 |
+| `z_c3_z0b15` | `run_c3probe.py z0_b15` | C3 z0_b15 (z fixed) | 10:48 |
+| `zsweep` | `run_z_sweep.py` | A z3_b15 (9 rods, ±3 µm, 1.5), then A z0 / C z3 / C z0 (skip-if-done) | 10:04 |
+| `z_a_z0` | `run_z_sweep.py A_z0_b15` | A z0 (z fixed) | 10:48 |
+| `z_c_z0` / `z_c_z3` | `run_z_sweep.py C_z0_b15` / `C_z3_b15` | C z0 / C z3 | 10:48 |
+| `widthprobe` | `run_width_probe.py A B C` | capsule-width sweep 0.5–0.8 µm (no fit loop, NNLS only) | 14:18 |
+| — (no tmux) | `run_fieldtest_diag.py A` / `B` | diag 8-fit run: A full s1 + both `full_clean` | Nov 3 12:44 |
+
+**Job design:** z-window ladder {z3 = ±3 µm/13 cands, z0 = fixed} ×
+{A, C} 9-rod + C3 3-clean-rod, all at `coeff_bound` 1.5 — the z0-vs-z3
+contrast tests whether the per-rod z-shift is the escape channel that
+drives the ±1.5 pinning (see c-sweep section below for why the data do
+NOT want 1.5 waves). Each JSON records
+`unexpl_frac_at_fit` (fitted model vs data, same metric as the c-sweep).
+
+**Probes finished 2026-11-04** (outputs in `weekend_logs/resid_probe/`,
+local copies too): `run_resid_probe.py` (per-rod zero-aberration
+residuals, `resid_{A,B,C}.{json,tif}`), `run_c_sweep.py`
+(`csweep_{A,C}.json`), `run_width_probe.py` (see below).
+
+**Killed 12:25 UTC on capacity grounds** (load 424 → 300): the z-reg
+serial (`run_z_reg.py`: A z1 ±1 µm — 45 min of fit lost — and queued
+A z05 / C z1 / C z05), one-shots A z05 / C z1 / C z05, C3 z3_b5
+(bound ±5). The z-ladder middle rungs can be relaunched cheaply if the
+z0-vs-z3 contrast is ambiguous. Earlier `run_fieldtest_diag_buggy_z/`
+outputs and the first `c3probe/launch.log` blocks are from killed
+launch attempts — provenance notes in the logs.
 
 ### Handoff checklist (for a new agent; state as of 15:50 UTC 2026-11-03)
 

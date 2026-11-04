@@ -76,12 +76,18 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   A/B/C fits (2026-11-02) *also* all pinned, but a 2026-11-03 audit found
   their throwaway runner had a **z-derivation bug** (every interior rod
   placed 2–9 µm too high) → those fits are confounded. The corrected 8-fit
-  diagnostic is on nodeasb01g: **4/8 done (2026-11-04) and all still
-  pinned at ±1.5** — C complete, seeds identical (stable but pinned);
-  A/B on their second full seed, full_clean pending. Status +
-  interpretation rules + **handoff checklist** (how to check the run,
-  decision tree): `FIELDTEST_results_one_set_vs_Zmap.md` §8 (branch
-  `feat/fit-speedups`).
+  diagnostic is on nodeasb01g: **5/8 done (2026-11-04) and all still
+  pinned at ±1.5** — C and B full complete, seeds bit-identical (a
+  fixed point: `fit_3d` resets z-state per start, so this is NOT seed
+  stability); A full s1 + full_clean pending. A forward-model probe
+  (c-sweep, 2026-11-04) shows the pinned coefficients explain only
+  ~4 points more tube signal than ZERO aberration → the data are
+  ~diffraction-limited and the pinning is a flat cost valley; the
+  running **z-sweep** (z fixed vs ±3 µm, A/C 9-rod + C 3-rod) tests
+  whether the per-rod z-shift is the escape channel. Runs in flight,
+  probe results, and interpretation: `FIELDTEST_results_one_set_vs_Zmap.md`
+  §8 (branch `feat/fit-speedups`); follow-up plans:
+  `plans/z-range-derivation.md`, `plans/tiled-field-scan.md`.
   The 99%-energy margin fix exists in `scripts_extras/rod_fit*` / server
   runs but is NOT yet in the package. Weekend fit logs:
   nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/`.
