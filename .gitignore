@@ -30,6 +30,7 @@ __pycache__/
 plans/*
 !/plans/fit-speedups.md
 !/plans/z-range-derivation.md
+!/plans/tiled-field-scan.md
 # one-set vs Z(x,y)-map decision docs (tracked on this branch)
 !/FIELDTEST_one_set_vs_Zmap.md
 !/SUPERVISOR_one_set_vs_Zmap.md
