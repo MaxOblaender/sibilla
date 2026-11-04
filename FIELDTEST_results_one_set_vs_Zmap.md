@@ -95,6 +95,28 @@ axial peak; figures on the server in `diag_review/`):
   z *and* clean rods, the bound/model suspicion is revived (and region3,
   which had correct z, is the reference case).
 
+### Progress snapshot (2026-11-04 07:40 UTC) — 4/8 fits done, all still pinned
+
+C is complete; A and B are on their second full seed (wall ≈ 9.5 h per
+full fit, so expect A/B seed1 + full_clean during the day of 2026-11-04):
+
+| job | Z5, Z6, Z7, Z8 (waves) | pinned / pinned05 | z-residuals (µm) |
+|---|---|---|---|
+| C full s0 (175 min) | +1.5, +1.5, +0.011, +0.076 | yes / yes | ±3.0 on 2/9 rods (r8, r9) |
+| C full s1 (188 min) | +1.5, +1.5, +0.011, +0.076 | yes / yes | identical to s0 (exact) |
+| A full s0 (568 min) | −1.5, −1.5, +0.821, −0.140 | yes / yes | ±3.0 on 3/9 rods; bad-z r6 at 2.5 |
+| B full s0 (548 min) | −0.039, +1.5, +1.5, −0.389 | yes / yes | ±3.0 on 1/9 rods (bad-z r5); r7 at 2.5 |
+| A full s1, A full_clean, B full s1, B full_clean | — running — | | |
+
+Interim read (per the decision tree below): C's **seeds agree exactly**
+(seed stability is good), but the fits do **not** come off the ±1.5 bound
+with corrected z — and A/B's full_0 still carry the 2 bad-z rods each
+(the full_clean jobs are the contamination check). Since region3 (correct
+z, clean rods) pinned at ±0.5 too, the "bound/model suspect" branch stays
+alive. The z-residuals no longer saturate uniformly (3 of 9 rods are at
+the ±3 µm edge, not all 9), which is consistent with the z bug being gone;
+what remains is the bound/model question.
+
 ### Handoff checklist (for a new agent; state as of 15:50 UTC 2026-11-03)
 
 - **Access:** from the laptop, only `nodeasb01g` is reachable (key auth

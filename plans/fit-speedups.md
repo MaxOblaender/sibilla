@@ -185,6 +185,13 @@ Consequence that must be decided **before** any speed-up is designed:
 
 Until the correlation length is known, no crop size should be committed to.
 
+**Prerequisite (2026-11-03/04):** a stable fit. The region3 99 %-margin
+re-run (correct z, 2026-11-03) pinned at −0.5 again → the guard-band
+hypothesis is dead; the corrected z field-test diagnostic (±1.5 bound)
+is pinned too (C seeds identical, 2026-11-04). Crop/tile geometry can be
+decided only once a 9-rod fit comes off the bound
+(`FIELDTEST_results_one_set_vs_Zmap.md` §8).
+
 ## 3. Discipline (applies to every option)
 
 - Every "cheaper" variant is a **flag**, calibrated once against the full
