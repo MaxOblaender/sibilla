@@ -117,6 +117,42 @@ alive. The z-residuals no longer saturate uniformly (3 of 9 rods are at
 the ±3 µm edge, not all 9), which is consistent with the z bug being gone;
 what remains is the bound/model question.
 
+### Decisive probe, run 2026-11-04: the "1.5 waves" explains almost nothing (c-sweep)
+
+While the 8-fit run was in flight, a forward-model probe (`resid_probe`,
+server `weekend_logs/resid_probe/`, local copy gitignored) was run:
+the fitter's **own** model (exact capsules, zero z-search) evaluated at
+several coefficient vectors, measuring the fraction of the tube-union
+signal it explains (per-rod amplitudes + per-plane background free —
+the same degrees of freedom the fit has, minus z).
+
+| coeff (Z5,Z6,Z7,Z8) | magnitude | A explained | C explained |
+|---|---|---|---|
+| 0,0,0,0 (no aberration) | 0 w | 55.5 % | **87.2 %** |
+| region's pinned result | 2.1–2.5 w | 59.6 % | 91.4 % |
+| 2× pinned | 4.2–4.3 w | 59.8 % | 91.9 % |
+
+**Reading:** setting the coefficients to the *pinned* values improves the
+fit by only **+4.1 points** over no aberration at all; doubling to 3
+waves buys **+0.2–0.6 more**. If the data really contained ~2 waves of
+Z5–Z8, matching them would collapse the residual — they don't. The data
+are **~diffraction-limited** (consistent with the images looking good),
+and the pinning is an optimizer sliding down a **flat cost valley** to
+the bound, not the data demanding large aberration. Consequences:
+
+- The ±1.5 bound is **not** the limiting factor (widening won't help).
+- The free per-rod **z-shift is the prime suspect** for absorbing what
+  should be aberration → the running z-sweep (A/C × z3/z0, C3-3rod) is
+  the decisive test; design for the z-fixed outcome is in
+  `plans/z-range-derivation.md`.
+- Seed "stability" from this run is weak evidence: `fit_3d` resets all
+  z-state to the midpoint per start, so both seeds walk the same path
+  (bit-identical B/C results confirm it's a fixed point, not stability).
+- Also probed (same dir): per-rod **zero-aberration residual** — a
+  perfect capsule model leaves 35 % (C) / 67 % (A,B) of tube signal
+  unexplained; `resid_{A,B,C}.tif` are scrollable 3D maps of it.
+  Figures: `csweep_figure.png`.
+
 ### Handoff checklist (for a new agent; state as of 15:50 UTC 2026-11-03)
 
 - **Access:** from the laptop, only `nodeasb01g` is reachable (key auth
