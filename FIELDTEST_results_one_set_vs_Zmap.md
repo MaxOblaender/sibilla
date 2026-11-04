@@ -160,7 +160,27 @@ the bound, not the data demanding large aberration. Consequences:
 **Width probe (2026-11-04, `width_probe.json`): rod width is not the
 cause.** The model assumes a fixed capsule diameter (0.65 µm); asked
 whether the rods' actual width variation matters, the same forward
-model was evaluated at W = 0.5–0.8 µm:
+model was evaluated at W = 0.5–0.8 µm.
+
+*How it was tested.* For each width, the fitter's *own* code re-drew
+every rod at that thickness, blurred it with the real PSF, and matched
+it to the **real measured pixels** inside each rod's 1.5 µm tube
+(brightness and background free — the same freedom the real fit has).
+The score is "what fraction of the real light is left unexplained."
+Only the width changes between runs (box, positions, z, aberration are
+identical), so any score difference is caused by the width alone. The
+setup was verified first: at W = 0.65 µm it reproduced the independent
+residual-probe reference (C: 0.357 vs 0.353), i.e. it ran on
+correctly-registered data.
+
+*What it does NOT measure.* Because the tube is ~2× wider than the rod,
+the rod fits inside it at every width — so this test says "does the
+assumed width change the fit quality / drive the coefficients," **not**
+"what is each rod's true width." For that, measure a perpendicular
+profile through an in-focus rod and deconvolve the PSF out
+(object ⊛ PSF → solve for object width), or use the synthetic
+known-width bias test (2026-10-29, pre-flight P3). Not on the critical
+path since the width knob barely moves the cost.
 
 | region | unexplained @ c=0, W=0.5 | W=0.65 | W=0.8 | total width effect |
 |---|---|---|---|---|
