@@ -221,6 +221,23 @@ drives the ±1.5 pinning (see c-sweep section below for why the data do
 NOT want 1.5 waves). Each JSON records
 `unexpl_frac_at_fit` (fitted model vs data, same metric as the c-sweep).
 
+**How to read the results** (when the JSONs land — primary contrast:
+C z0 vs C z3, since C's rods are clean; A is the replication with the
+2 known bad-z rods; C3 = 3 clean rods, caveat: weak orientation
+spread 72°/95°/178°):
+
+| outcome | verdict | next step |
+|---|---|---|
+| **z0 off-bound, z3 pinned** (A and/or C) | the per-rod z-shift WAS the escape channel | ship "derive z globally, fix (or ±2σ) z" per `plans/z-range-derivation.md` O-z1/O-z3; re-run region3 (should de-pin); re-do the field test |
+| **both pinned** | z is not the channel; Z5–Z8 flat valley (under-determined) is intrinsic | don't report Z5–Z8 as point estimates — upper bounds or a regularised posterior; next probes: coefficient prior (O-z4), more/better-oriented rods, then `plans/tiled-field-scan.md` |
+| **z0 pins, z3 de-pins** (unexpected) | z-freedom was absorbing a real rod misplacement — check `seg_z_um`: if A's bad-z rods (r4, r6) drove it to ±3 µm, it's the rod quality | redraw the 4 bad z-clicks (A r4→z13, A r6→z18, B r5→z19, B r8→z5), re-run A z0 |
+| **C3 z0 off-bound but C z0 pinned** | 9 rods / contamination / free amplitudes are needed, not z | stricter selection (isolated rods only); per-tile fits |
+| **C3 z0 pinned too** | even 3 clean z-fixed rods can't de-pin → model/basis issue at this SNR | tile scan for stationarity; width/model probes; report bounds |
+
+Also compare `unexpl_frac_at_fit` z0 vs z3: if z3's z-search barely
+reduces the residual (see c-sweep: aberration itself only buys ~4 pts),
+the z-moves are reshuffling the flat valley, not explaining signal.
+
 **Probes finished 2026-11-04** (outputs in `weekend_logs/resid_probe/`,
 local copies too): `run_resid_probe.py` (per-rod zero-aberration
 residuals, `resid_{A,B,C}.{json,tif}`), `run_c_sweep.py`
