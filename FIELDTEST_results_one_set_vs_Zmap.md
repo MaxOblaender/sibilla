@@ -157,6 +157,25 @@ the bound, not the data demanding large aberration. Consequences:
   unexplained; `resid_{A,B,C}.tif` are scrollable 3D maps of it.
   Figures: `csweep_figure.png`.
 
+**Width probe (2026-11-04, `width_probe.json`): rod width is not the
+cause.** The model assumes a fixed capsule diameter (0.65 µm); asked
+whether the rods' actual width variation matters, the same forward
+model was evaluated at W = 0.5–0.8 µm:
+
+| region | unexplained @ c=0, W=0.5 | W=0.65 | W=0.8 | total width effect |
+|---|---|---|---|---|
+| A | 0.6712 | 0.6670 | 0.6632 | 0.8 pts |
+| B | 0.6925 | 0.6921 | 0.6915 | 0.1 pts |
+| C | 0.3605 | 0.3572 | 0.3542 | 0.6 pts |
+
+The trend is monotone toward *wider* (true rods are likely a touch
+thicker than 0.65 µm) but the total effect is **≤0.8 points** — an
+order of magnitude smaller than the aberration's own effect (3–6 pts)
+and far too small to drive the pinning. Brightness differences are
+absorbed by the free per-rod amplitude. Rod width/brightness variation
+is **ruled out** as a pinning cause; the 0.65 µm default is fine for
+now (a 0.7 µm default would buy ~0.2 pts — not worth a change).
+
 ### Runs in flight on nodeasb01g (2026-11-04 14:20 UTC — update when stale)
 
 All throwaway runners live in `/asbdata/moblaende26/zerniky/` on
@@ -172,7 +191,7 @@ nodeasb01g (NOT in git — `# THROWAWAY` convention); outputs under
 | `zsweep` | `run_z_sweep.py` | A z3_b15 (9 rods, ±3 µm, 1.5), then A z0 / C z3 / C z0 (skip-if-done) | 10:04 |
 | `z_a_z0` | `run_z_sweep.py A_z0_b15` | A z0 (z fixed) | 10:48 |
 | `z_c_z0` / `z_c_z3` | `run_z_sweep.py C_z0_b15` / `C_z3_b15` | C z0 / C z3 | 10:48 |
-| `widthprobe` | `run_width_probe.py A B C` | capsule-width sweep 0.5–0.8 µm (no fit loop, NNLS only) | 14:18 |
+| `—` | `run_width_probe.py` | **DONE 14:39 UTC** — width sweep 0.5–0.8 µm: rod width ruled out (≤0.8 pts effect, see c-sweep section) | 14:18 |
 | — (no tmux) | `run_fieldtest_diag.py A` / `B` | diag 8-fit run: A full s1 + both `full_clean` | Nov 3 12:44 |
 
 **Job design:** z-window ladder {z3 = ±3 µm/13 cands, z0 = fixed} ×
