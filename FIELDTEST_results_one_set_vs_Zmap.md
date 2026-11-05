@@ -572,6 +572,35 @@ Caveats: n=1 tile per depth; brightness and field position not yet
 disentangled (S is dimmer and elsewhere; the LOO shows within-tile
 composition effects of the same order).
 
+### 10.3a Which axis? — every single-cause hypothesis has a counter-example
+
+The mid-band (25–55 µm) contains BOTH outcomes with the same recipe, and
+each candidate axis fails as the sole discriminator:
+
+| suspect | counter-example pair (same recipe, different outcome) |
+|---|---|
+| rod count | C3 (3 rods) **pins**; tright (3 rods) off-bound — same era/runner |
+| intensity / lever | merged (amps 0.0017) off-bound; region3 (amps 0.0021) **pins** — same lever, opposite outcome; C3 (bright) pins while T (brighter) doesn't |
+| rod quality (drawing) | S and T both pass the z/xy verification pipeline; same quality, opposite outcome; `full_clean` did not de-pin A/B (§8) |
+| depth | trend is real (shallow 4/4 off-bound, deep end pins) but the mid-band is MIXED: region5/6, tright, merged off vs region3, S, C3 on |
+
+**The merged/S near-pair.** Comparing boxes: `fit_merged` (Oct 30, auto-
+extracted, 5 rods, OFF-bound at 0.2–0.3 w) and the user-drawn **S** set
+occupy nearly the same region — merged box x 727–1278, y 98–366, z 33–
+54.5 µm; S rods x 758–1127, y 56–282, z 40–55 µm; levers comparable (amps
+0.001–0.006 both). Same field neighbourhood, ~same depth, **different rod
+set → different outcome.** A natural matched-pair experiment performed by
+accident: at the knife-edge the result is decided by *which specific rods*
+(consistent with §10.2 — composition flips signs, and here, plausibly,
+pinning), not by a region-level property.
+
+Net status: shallow works reliably; mid-band is a knife-edge where depth
+(trending, physical mechanism known), field position, and rod composition
+all act together; no single axis suffices. The remaining clean test is
+model-side (Z4 spherical, §10.7 item 5), because every data-side
+"matched" design fails: the bright+isolated+deep cell does not exist
+(§10.4).
+
 ### 10.4 The bright+isolated+deep cell does not exist in this specimen
 
 Three independent deep selections (S, D, E) plus the field scan: best deep
@@ -605,9 +634,13 @@ bright+isolated+deep does not occur (§10.4).
 2. **Shallow (≤10 µm) sparse ensembles work**: two independent tiles, a
    month apart, both off-bound at ~0.1–0.2 w magnitude. The specimen is
    near-diffraction-limited at the coverslip end.
-3. **Deep (≥40 µm) sparse ensembles do not produce identifiable
-   coefficients** — they pin. Depth-aberration leak is the leading
-   explanation; brightness is the main residual confound.
+3. **Shallow (≤10 µm) tiles are reliably off-bound** (4/4, two eras);
+   **mid-depth (25–55 µm) is a knife-edge** — mixed outcomes at matched
+   recipe, flipping with rod composition (§10.3a merged/S pair); the deep
+   end (≥48 µm) pins so far. Depth trends monotone but no single axis
+   (depth, intensity, count, quality) predicts the outcome (§10.3a).
+   Depth-aberration leak is the leading explanation; brightness and field
+   position are residual confounds.
 4. **Report amplitudes, never signed Z5/Z6 axes** (§10.2).
 5. **Remaining paths to a depth answer** (model-based, awaiting maintainer
    go-ahead since they touch the pinned mode set): (a) add spherical Z4 to
