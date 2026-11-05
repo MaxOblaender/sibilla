@@ -103,9 +103,17 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   (`test_unexpl_patch.py`) 2026-11-05, b15 relaunch held in favour of
   the bound-0.5 wave (C3 + A/B full_clean + C full, 4 parallel jobs,
   launched 08:09 UTC 2026-11-05, watcher → `weekend_logs/z_sweep/DONE.b05`).
+  The maintainer then drew four sparse/deep ROI sets (FIELDTEST §10):
+  T (shallow, 3–7 µm) de-pins at +0.11/−0.12 and reproduces the Oct early
+  crop; S (40–56 µm) pins at ±0.5 despite 5× lower amplitudes; the
+  bright+isolated+deep cell does not exist in this specimen (D/E + full-field
+  scan); the Z5/Z6 axis is rod-composition-driven (LOO: dropping one rod
+  flips signs) → report amplitudes, never signed axes. Z4-spherical mode
+  test proposed, awaiting maintainer go-ahead. nodeasb01 is reachable again
+  (idle, 256 cores — T-sized fits: 9 min vs ~1 h projected on a loaded node).
   Run states,
   probe results, and interpretation: `FIELDTEST_results_one_set_vs_Zmap.md`
-  §8 (branch `feat/fit-speedups`); follow-up plans:
+  §8–§10 (branch `feat/fit-speedups`); follow-up plans:
   `plans/z-range-derivation.md`, `plans/tiled-field-scan.md`.
   The 99%-energy margin fix exists in `scripts_extras/rod_fit*` / server
   runs but is NOT yet in the package. Weekend fit logs:

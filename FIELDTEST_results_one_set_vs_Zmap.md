@@ -12,6 +12,12 @@ neighbour tube overlap, orientation, rod quality, or rod count — which is
 why the sparse, dim early crop (4 rods, tiny lever) read out sensible
 small coefficients while the bright, crowded A/B/C regions slide to the
 bound.**
+**§10 (2026-11-05, later): the user-drawn sparse/deep campaign — shallow
+tiles (T, 3–7 µm) de-pin at ~0.1–0.2 w and reproduce the October early crop;
+the mid-depth tile (S, 40–56 µm) pins even though sparse; the
+bright+isolated+deep cell does not exist in this specimen; and the Z5/Z6
+axis is rod-composition-driven (LOO) — report amplitudes, never signed
+axes.**
 Everything below §8 is the original analysis — kept for the record, but its
 main conclusion (large aberration) is retracted.
 
@@ -397,22 +403,14 @@ C rods, the live end-to-end proof of the `unexpl()` fix), `A_z3_b05_fullclean`
 started 08:09 UTC, watcher → `weekend_logs/z_sweep/DONE.b05`. This tests
 "bright+isolated vs dim+crowded at the bound that matters (0.5)".
 
-### Runs on nodeasb01g (updated 2026-11-05 — update when stale)
+### Runs inventory
 
-All throwaway runners live in `/asbdata/moblaende26/zerniky/` on
-nodeasb01g (NOT in git — `# THROWAWAY` convention); outputs under
-`weekend_logs/`. Node otherwise idle. Check with:
-`ps -eo pid,cmd | grep 'run_z_swee[p]'`,
-`ls weekend_logs/z_sweep/*.json`, `cat weekend_logs/z_sweep/DONE.b05`.
-
-| runner | job | state |
-|---|---|---|
-| `run_z_sweep.py` ×4 nohup + watcher | **bound-0.5 wave**: C3 (3 bright) + A/B `full_clean` (7) + C full (9), all z3, bound 0.5 (launched 2026-11-05 08:09) | **running** — C3 ≈1 h, 9-rod ≈3–10 h; watcher writes `z_sweep/DONE.b05` |
-| `run_z_sweep.py` | 9-rod z3/z0_b15 (A/C) | **held** — DRY timed out in `fit_3d` before reaching `unexpl()`; patch unit-verified (`test_unexpl_patch.py`); relaunch = one command after the b0.5 wave proves the real path |
-| `run_fieldtest_diag.py A/B/C` | corrected 8-fit diagnostic | **DONE 01:42 UTC Nov 5 — 8/8, all pinned** (final read-out above) |
-| `run_c3probe.py` + one-shots | C3 z3/z0 × b15/b5 | **DONE 22:09 UTC Nov 4 — 4/4** (C3 section above) |
-| `run_width_probe.py` | width sweep 0.5–0.8 µm | **DONE 14:39 UTC Nov 4** — width ruled out |
-| `run_z_reg.py` + one-shots | z-ladder middle rungs (A z05/z1, C z05/z1) | killed 12:25 UTC Nov 4 on capacity; not re-run — relaunch cheap if midpoints are needed |
+**Superseded — the current two-node inventory lives in §10.10.** All
+throwaway runners live in `/asbdata/moblaende26/zerniky/` on the shared NFS
+(NOT in git — `# THROWAWAY` convention); outputs under `weekend_logs/`.
+Check with: `ps -eo pid,cmd | grep 'run_z_swee[p]'`,
+`ls weekend_logs/z_sweep/*.json`, `cat weekend_logs/z_sweep/DONE.b05`
+(+ `DONE.sparse`, `DONE.sparseT`).
 
 **Job design:** z-window ladder {z3 = ±3 µm/13 cands, z0 = fixed} ×
 {A, C} 9-rod + C3 3-clean-rod, all at `coeff_bound` 1.5 — the z0-vs-z3
@@ -504,6 +502,147 @@ launch attempts — provenance notes in the logs.
    capsule/width/model probes (§5.3).
 4. O1 (per-rod support cropping, `plans/fit-speedups.md`) remains the next
    big perf item — it makes every iteration of 2–3 above 5–20× cheaper.
+
+## 10. SPARSE/DEEP CAMPAIGN (2026-11-05): user-drawn regions T, S, D, E — depth ladder, sign stability, and the missing bright+deep cell
+
+After §8/§9, the maintainer drew four new ROI sets on the full AF488 channel
+(numerically verified + scored by `verify_{sparse,S,T,D,E}.py`-style scripts,
+all throwaway on the server): **S** = `RoiSet_sparse` (6 rods, z 40–56 µm),
+**T** = `RoiSet_sparse_high` (8 rods, z 3–7 µm, stored z accurate to ±3),
+**D** = `RoiSet_deep` (6 rods, z 48–60 µm), **E** = `RoiSet_deeper` (7 rods,
+z 58–67 µm). Plus a **full-field auto-scan** (`scan_sparse.py`: 3,037
+segments) and a **T leave-one-out** (LOO) stability study. All fits via the
+patched `run_z_sweep.py` (z0 = trust derived z, per §9.4), run on nodeasb01
+(reachable again, idle) + nodeasb01g.
+
+### 10.1 Master results table (every campaign fit)
+
+| fit | depth (µm) | rods | bound | Z5 | Z6 | Z7 | Z8 | pinned | unexpl@fit |
+|---|---|---|---|---|---|---|---|---|---|
+| T z0_b05 | 3–7 | 8 | 0.5 | +0.109 | −0.120 | +0.029 | +0.004 | **no** | 0.679 |
+| T z0_b15 | 3–7 | 8 | 1.5 | +0.109 | −0.120 | +0.029 | +0.004 | **no** | 0.679 |
+| T b05_tsub (−r3,−r8) | 3–7 | 5 | 0.5 | +0.020 | −0.152 | +0.009 | +0.015 | no | 0.702 |
+| T LOO −r1 | 3–7 | 7 | 0.5 | +0.099 | −0.131 | +0.028 | +0.002 | no | 0.681 |
+| T LOO −r2 | 3–7 | 7 | 0.5 | +0.116 | −0.116 | +0.024 | +0.005 | no | 0.672 |
+| T LOO −r3 | 3–7 | 7 | 0.5 | +0.075 | −0.128 | +0.022 | +0.009 | no | 0.686 |
+| T LOO −r5 | 3–7 | 7 | 0.5 | +0.168 | −0.133 | +0.034 | +0.001 | no | 0.683 |
+| T LOO **−r6** | 3–7 | 7 | 0.5 | **−0.187** | **+0.030** | +0.043 | +0.006 | no | 0.619 |
+| T LOO −r7 | 3–7 | 7 | 0.5 | +0.139 | −0.057 | +0.025 | +0.002 | no | 0.687 |
+| T LOO −r8 | 3–7 | 7 | 0.5 | +0.112 | −0.112 | +0.029 | +0.004 | no | 0.684 |
+| S z0_b05 | 40–56 | 6 | 0.5 | **+0.500** | **+0.500** | +0.124 | +0.102 | **YES** | 0.559 |
+| S z0_b15 | 40–56 | 6 | 1.5 | in flight (both nodes) | | | | | |
+| D z0_b05 (−r5) | 48–60 | 5 | 0.5 | in flight | | | | | |
+| E z0_b05 (−r2,−r3,−r7) | 58–67 | 4 | 0.5 | in flight | | | | | |
+| early crop (Oct, reference) | 3.5–10 | 4 | 0.5 | +0.180 | +0.123 | +0.008 | −0.015 | no | — |
+| A/B/C full (§8) | 26–65 | 7–9 | 1.5 | pinned ±1.5 | | | | yes | 0.56–0.68 |
+| A/B/C b0.5 wave (z3) | 26–65 | 3–9 | 0.5 | in flight (nodeasb01g) | | | | | |
+| C3 b0.5 (z3) | 51–64 | 3 | 0.5 | in flight (nodeasb01g) | | | | | |
+
+### 10.2 T leave-one-out: the astigmatism AXIS is rod-composition-driven
+
+Dropping **r6 alone** flips Z5's sign and rotates the axis ~90°
+(+0.109/−0.120 → −0.187/+0.030); dropping r2 (the SNR-95 superstar) or r8
+changes nothing; dropping r7 halves Z6's magnitude. Mechanism: r6 (161°) and
+r8 (62°) sit 1.5 µm apart — an almost orthogonal pair, and an orthogonal pair
+is what fixes the astigmatism axis; r6 out-signals r8 ~6×, so the axis
+follows r6. The earlier `tsub` subset test did NOT contradict this — it
+dropped r8 (r6's partner), which *locked* the axis onto r6.
+
+**Consequence: never report signed Z5/Z6 from a single tile.** The stable
+quantities are the astigmatism **magnitude (~0.15–0.2 w here)** and Z7/Z8 ≈ 0.
+This also retroactively explains the deep-region sign flips (A −,− vs C +,+):
+bound-pinning *plus* composition-driven axis — doubly uninterpretable.
+
+### 10.3 Depth ladder: shallow de-pins, deep pins — at matched recipe
+
+| depth | region | rods | outcome at b0.5, z0 |
+|---|---|---|---|
+| 3–7 µm | **T** | 8 (sparse, bright: 4 rods SNR≥12) | **off-bound, +0.11/−0.12** |
+| 3.5–10 µm | early crop (Oct) | 4 (sparse, dim) | off-bound, +0.18/+0.12 |
+| 40–56 µm | **S** | 6 (sparse, dim) | **PINNED ±0.5** |
+| 26–65 µm | A/B/C | 7–9 (crowded) | pinned ±1.5 (b0.5 arms in flight) |
+
+S pinned **despite** amplitudes 5× below T's (0.001–0.006) — the low-lever
+regime that stayed near zero in region4/5/6 slid to the bound here, and S
+explains its tubes *better* than T (unexpl 0.56 vs 0.68), so haze is not the
+driver. Leading explanation: **depth-dependent spherical aberration (index
+mismatch) leaking into Z5–Z8**, exactly as the maintainer hypothesised
+("higher in the image is easier — probably also impacts the aberrations").
+Caveats: n=1 tile per depth; brightness and field position not yet
+disentangled (S is dimmer and elsewhere; the LOO shows within-tile
+composition effects of the same order).
+
+### 10.4 The bright+isolated+deep cell does not exist in this specimen
+
+Three independent deep selections (S, D, E) plus the field scan: best deep
+SNRs are 16 (S), 3.0 (D), 5.8 (E); the scan's brightest deep candidates
+(z 80–120, SNR 9.5–22) all sit in dense patches. Brightness at depth comes
+bundled with density (haze); isolation at depth comes bundled with dimness.
+**Rod-based aberration measurement below ~30 µm is not viable in this
+specimen** — no ROI-selection skill changes that.
+
+### 10.5 Drawing at depth is intrinsically unreliable
+
+D r5: drawn z 119, axial argmax 129 (+10). E r2/r3/r7: +10/+11/+6. At depth
+the axial profile is smeared, so "sharpest plane" is ambiguous even visually
+(the maintainer's own observation). Pipeline answer: always run the
+z-verification (`verify_*.py`) and patch stored z to the refined argmax
+before fitting (done for S; D dropped r5 instead; E fit excludes the three).
+
+### 10.6 Field scan (for future tiles)
+
+3,037 auto-segments; **22 bright+isolated (SNR≥8, iso≥3.5 µm) = 0.7 %**;
+they form one pocket of 5 (proposal sheet + preview in
+`weekend_logs/sparse_scan/proposals/`, copied to `results_local/`).
+Detection is not the bottleneck — bright+isolated simply is rare, and
+bright+isolated+deep does not occur (§10.4).
+
+### 10.7 Conclusions
+
+1. **Ruled out** as pinning causes: crowdedness (§9.2), rod quality
+   (§8 full_clean), rod count (§10: 2–9 rods both pin and de-pin), z-range
+   (§9.4/C3), width (§8).
+2. **Shallow (≤10 µm) sparse ensembles work**: two independent tiles, a
+   month apart, both off-bound at ~0.1–0.2 w magnitude. The specimen is
+   near-diffraction-limited at the coverslip end.
+3. **Deep (≥40 µm) sparse ensembles do not produce identifiable
+   coefficients** — they pin. Depth-aberration leak is the leading
+   explanation; brightness is the main residual confound.
+4. **Report amplitudes, never signed Z5/Z6 axes** (§10.2).
+5. **Remaining paths to a depth answer** (model-based, awaiting maintainer
+   go-ahead since they touch the pinned mode set): (a) add spherical Z4 to
+   the fitted modes on T (control: ~0 expected) vs S/D/E — rotationally
+   symmetric, so immune to the §10.2 degeneracy, and it *measures* the
+   index mismatch; (b) synthetic spherical injection into bright shallow
+   data (ground truth for fitter capability).
+6. **For deconvolution**: shallow slabs can use the measured near-zero PSF;
+   deep slabs need either slab-wise PSFs or a model-derived spherical term —
+   single-PSF-per-stack is only valid near the coverslip end.
+
+### 10.8 In flight at documentation time
+
+S z0_b15 (both nodes), T LOO r4, D z0_b05 (−r5), E z0_b05 (−r2,−r3,−r7)
+(nodeasb01); C3 b0.5 + A/B/C crowded b0.5 arms (nodeasb01g, nice 15).
+Rows to be appended on landing.
+
+### 10.9 Compute note
+
+nodeasb01 is reachable again and idle (the 2026-11-03 "reserved/firewall-
+blocked" note in the §8 handoff checklist is stale). On the idle 256-core
+node, a T-sized fit takes **9 min**; the same box projected ~1 h on the
+loaded g node. `plans/fit-speedups.md` O1 remains unimplemented — the
+contention behaviour (10 parallel fits thrashing a node) keeps making the
+case for it.
+
+### 10.10 Runs inventory (both nodes, 2026-11-05 ~12:00 UTC)
+
+| node | job | state |
+|---|---|---|
+| nodeasb01 | D_z0_b05_nor5, E_z0_b05_sub | running (launched ~10:55) |
+| nodeasb01 | S_z0_b15 (dup), T LOO r4 | running |
+| nodeasb01g | S_z0_b05 (dup — will overwrite the node01 JSON with identical coeffs), S_z0_b15 | running |
+| nodeasb01g | C_z3_b05_c3, A/B full_clean b0.5, C full b0.5 (nice 15) | running (~2 h 40 m) |
+| both | everything else (diag, c3probe, width, scan) | DONE — see §8/§9/§10 |
 
 ---
 
