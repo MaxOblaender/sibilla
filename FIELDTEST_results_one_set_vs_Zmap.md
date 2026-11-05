@@ -743,6 +743,13 @@ Rod-peak read-out on the 13 campaign rods (T + D regions):
 | psfT | 6965 (+49 %) | 4634 (+31 %) |
 | psfS | 7206 (+54 %) | 5322 (+50 %) |
 | firstcrop | 7855 (+68 %) | 5077 (+43 %) |
+| psfE (E_clean coeffs, added 15:35) | 7935 (+69 %) | 5172 (+46 %) |
+
+psfE medians over all 13 rods (capsule-masked metric): T 3979, D 1723 —
+the highest of all arms, winning 11/13 rods. Consistent with its kernel
+breadth (|Z6|=0.195 → kernel peak 0.065 ≈ firstcrop's 0.058), not with
+astigmatism correctness; same caveat as above: breadth, not structure,
+drives the gain.
 
 Findings: (1) peaks order by **kernel breadth**, not correctness — RL
 inflates peaks for any broader template; (2) **psfT ≈ psfS** (within 2–8 %,
