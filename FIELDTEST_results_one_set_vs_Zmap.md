@@ -1,11 +1,19 @@
 # Field-test results — what the A/B/C fits tell us (2026-11-03)
 
 Companion to `FIELDTEST_one_set_vs_Zmap.md` (protocol, §6 results now filled by
-this doc). Status: **2026-11-03 UPDATE: a z-derivation bug in the field-test
-runner was found and fixed; ALL 15 field-test fits are confounded and the
-corrected 8-fit run is in progress (§8).** Everything below §8 is the
-original analysis — kept for the record, but its main conclusion (large
-aberration) is retracted.
+this doc). Status: **2026-11-05 UPDATE: the corrected 8-fit diagnostic is
+complete — ALL 8 pin at ±1.5 with correct z and clean rods, and the C3
+z0-vs-z3 probe pins in BOTH arms. Verdict per the §8 matrix: the per-rod
+z-shift is NOT the escape channel — Z5–Z8 ride a flat cost valley and must
+be reported as bounds / a regularised posterior, not point estimates. §9
+adds the cause analysis: the pinning driver is diffuse out-of-focus haze
+from dense regions (per-plane-constant background can't model it), NOT
+neighbour tube overlap, orientation, rod quality, or rod count — which is
+why the sparse, dim early crop (4 rods, tiny lever) read out sensible
+small coefficients while the bright, crowded A/B/C regions slide to the
+bound.**
+Everything below §8 is the original analysis — kept for the record, but its
+main conclusion (large aberration) is retracted.
 
 Fitter: server copy `zernike_test` (`fit.py` md5
 `4fcb3e0c8b910f6677a603b054b3905e`, **same commit as this branch** for the
@@ -196,23 +204,215 @@ absorbed by the free per-rod amplitude. Rod width/brightness variation
 is **ruled out** as a pinning cause; the 0.65 µm default is fine for
 now (a 0.7 µm default would buy ~0.2 pts — not worth a change).
 
-### Runs in flight on nodeasb01g (2026-11-04 14:20 UTC — update when stale)
+### FINAL read-out (2026-11-05): 8/8 done — all pin at ±1.5, clean rods included
+
+Watcher `DONE` 01:42 UTC 2026-11-05; all 8 JSONs in
+`weekend_logs/fieldtest_diag/` (fit.py md5 `89df1222`, commit `50f2aed`).
+The three jobs that were pending at the snapshot above:
+
+| job | Z5, Z6, Z7, Z8 (waves) | pinned / pinned05 | z-residuals (µm) |
+|---|---|---|---|
+| A full s1 | −1.5, −1.5, +0.821, −0.140 | yes / yes | **identical to s0** (coeffs + z-residuals) |
+| A full_clean s0 (7 rods) | −1.5, −1.5, +0.843, −0.149 | yes / yes | ±3.0 on 3/7 rods (r1, r5, r7) |
+| B full_clean s0 (7 rods) | +1.5, +1.5, +1.5, +1.186 | yes / yes | r4 at 3.0, r7 at 2.5 |
+
+- **All 8 fits pin at ±1.5** (corrected z, wide bound). Seeds are
+  bit-identical in ALL three regions now — the documented fixed point
+  (z-state reset per start), not stability.
+- **The de-contamination check does not de-pin.** Removing the bad-z
+  rods (A r4/r6, B r5/r8) leaves A nearly unchanged (Z7 0.821 → 0.843);
+  B ends with three modes AT the bound and Z5's sign flipped
+  (−0.039 → +1.5) — flat-valley sign instability, not a contamination
+  response.
+- Decision-tree outcome: "still pinned at ±1.5 with correct z *and*
+  clean rods", now confirmed against the c-sweep (below) and region3's
+  ±0.5 reference. **The ε/σ field comparison — the original field-test
+  question — is not answerable from Z5–Z8 point estimates at this SNR.**
+
+### C3 z0-vs-z3 probe (DONE 22:09 UTC 2026-11-04): both arms pinned
+
+`c3probe/` — 3 clean C rods (r2, r8, r9), {z fixed, ±3 µm} × {bound 1.5, 5}:
+
+| job | Z5, Z6, Z7, Z8 (waves) | pinned | cost | z-res (µm) |
+|---|---|---|---|---|
+| C3 z3_b15 | +1.500, +1.500, +0.210, +0.893 | yes | 479 577 | 0, −1, −3 |
+| C3 z0_b15 | +1.500, +1.500, +0.225, +0.906 | yes | 483 897 | z fixed |
+| C3 z3_b5 | −4.073, −1.236, −0.002, +0.078 | no | 406 211 | 0, +2.5, −2.5 |
+| C3 z0_b5 | −3.653, −1.648, +0.003, +0.093 | no | 417 310 | z fixed |
+
+- **Primary contrast at bound 1.5: both arms pin**, with nearly
+  identical coefficients; freeing z buys 0.9 % cost. Matrix verdict:
+  **"both pinned" — the per-rod z-shift is NOT the escape channel; the
+  Z5–Z8 flat valley is intrinsic.** Next per the matrix: report upper
+  bounds / regularised posterior; coefficient prior (O-z4);
+  more/better-oriented rods; `plans/tiled-field-scan.md`.
+- Caveats that keep the 9-rod replication worthwhile: C3 has weak
+  orientation spread (72°/95°/178°), and r2's fitted amplitude is 0 in
+  all four runs (its tube signal is absorbed by the free per-plane
+  background) — effectively a 2-rod probe. Hence the relaunched 9-rod
+  z_sweep (below).
+- **Bound-±5 slide (interpretation, not established):** loosening the
+  bound to 5 drops the cost ~14–15 % toward Z5 ≈ −4 / Z6 ≈ −1.6
+  (Z7/Z8 ≈ 0), but the free per-rod amplitudes jump ~4–8× (r8
+  0.08 → 0.29–0.34; r9 0.02 → 0.16–0.20) — the amplitude↔aberration
+  degeneracy (bigger aberration attenuates the PSF; free amplitude
+  compensates). Lower cost ≠ more explained signal; the discriminating
+  metric `unexpl_frac_at_fit` is not in these JSONs (the c3probe runner
+  doesn't compute it) — the relaunched z_sweep records it.
+
+### The 9-rod z_sweep was lost to a metric bug; fixed and relaunched 2026-11-05
+
+All four 9-rod jobs (A z3_b15 serial; A z0 / C z0 / C z3 one-shots)
+**completed `fit_3d`, then crashed in `run_z_sweep.py`'s `unexpl()`
+BEFORE the JSON dump**: the per-plane background block was built as
+`np.repeat(np.eye(nzp), len(idx), axis=1)` → (nzp, nzp·L) instead of
+(nzp·L, nzp), so `hstack` raised the 326952/345096-vs-36 ValueError and
+`res` died with the process — **≈35 h of completed fits discarded,
+nothing written** (A z3_b15 ≈15 h; A z0 ≈6.5 h; C z0 ≈4.3 h; C z3 ≈8.8 h).
+Same ValueError `width_probe.py` hit on 2026-11-04 (fixed and validated
+there by its server run).
+
+Fix + verification (2026-11-05): the validated construction
+(`A_bg[rows, rows // L] = 1.0`) was ported into `run_z_sweep.py`
+(pre-patch copy kept as `run_z_sweep.py.buggy_unexpl_20261105`).
+**Verified by unit test, not by DRY**: `test_unexpl_patch.py` runs the
+patched function on the exact crash shapes (nzp=36) — it returns a valid
+fraction, and the per-plane background absorbs a constant offset exactly
+(residual conserved to 3 ppm; the score is ‖r‖/‖b‖ so only the
+normaliser moves). The runner's own DRY mode timed out at 9 min inside
+`fit_3d` before ever reaching `unexpl()`, so the b15 9-rod relaunch is
+**held** (nothing lost — it can be launched in one command); the
+bound-0.5 wave instead carries the contrast (§9.6).
+
+## 9. WHY THE FIELD-TEST REGIONS PIN — and why the sparse early crop worked (2026-11-05)
+
+Follow-up diagnosis after §8: the corrected fits all pin, and the question was
+*is it the z-range, rod quality, rod count, or the regions themselves?* Ruling
+each out, in order. (All throwaway scripts in `/asbdata/moblaende26/zerniky/`
+on nodeasb01g: `neighbour_light2.py`, `orientation.py`, `test_unexpl_patch.py`,
+`diag_unexpl_bg.py`.)
+
+### 9.1 Rod count vs outcome — the early (sparse) regions were the control
+
+The *original* pre-field-test fits (2–7 rods each, auto-extracted from the
+sparse regions) were almost all **off-bound and sensible**:
+
+| fit | rods | coeffs (max\|Z\|) |
+|---|---|---|
+| region4 | 2 | +0.32, −0.08, +0.06, +0.02 (0.32) |
+| region5 | 2 | +0.09, +0.20, +0.01, −0.02 (0.20) |
+| region6 | 2 | +0.18, −0.15, −0.06, −0.06 (0.18) |
+| tright | 3 | +0.14, −0.16, +0.05, −0.04 (0.16) |
+| merged | 5 | −0.22, +0.31, +0.01, −0.05 (0.31) |
+| **region3** | **7** | **−0.5, −0.5, −0.04, −0.5 (PINNED)** |
+| C3 (field test) | 3 | +1.5, +1.5, +0.2, +0.9 (PINNED) |
+| C / A / B (field test) | 9/9/9 | all PINNED at ±1.5 |
+
+And the early 4-rod crop (your working example), `fit_report.json`:
+Z5=+0.180, Z6=+0.123, Z7=+0.008, Z8=−0.015 — off-bound, sensible.
+
+So "sparse → sensible, dense → pinned" is real. But rod **count alone** is not
+the driver: C3 is only 3 rods and pins, while region4/5/6 are 2 rods and don't.
+The distinguishing variable is **the light in each tube**.
+
+### 9.2 Neighbour light — tube overlap is tiny; the haze is diffuse
+
+`neighbour_light2.py`: fraction of each rod's own 1.5 µm tube covered by
+neighbour rods' tubes (derived z, |Δz|≤4 planes), joined with the per-rod
+zero-aberration unexplained fraction from `resid_probe`:
+
+| region | rods with overlap>0 | worst | Pearson r(overlap, unexpl) |
+|---|---|---|---|
+| A | 2/9 (r3 0.75, r9 0.72) | 0.75 | −0.06 |
+| B | 1/9 (r1/r2 ≤0.08) | 0.08 | +0.04 |
+| C | 2/9 (r3 0.05, r7 0.07) | 0.07 | +0.18 |
+
+**Direct tube overlap is NOT the poison** — it is ≤0.08 for most rods and
+*uncorrelated* with the residual (A r8: overlap 0.00, unexplained 0.96).
+
+The real unmodelled light is **diffuse out-of-focus haze from the dense 3-D
+neighbourhood**. The model's background is *one constant per plane*; look what
+it has to absorb at c=0:
+
+| region | fitted per-plane background (csweep c=0) | explained @ c=0 |
+|---|---|---|
+| A | **139 → 354 counts (2.6× swing)** | 55.5 % |
+| C | 126 → 147 (flat) | 87.2 % |
+
+In A, ~a third of every tube is haze the per-plane-constant background cannot
+follow — that is the irreducible residual, and it is what gives the optimizer a
+downhill slope into the bound (a wider aberrated PSF buys +4 pts of haze-shape
+there). C has almost no haze, so its valley is flat — but with free amplitudes
+it slides anyway (C3).
+
+**The early crop proves contamination ≠ pinning:** re-extracting its 9
+segments, fitted **seg4 has 90 % of its tube covered by an *unfitted*
+segment** (a 0.28 µm split artifact — pure unmodelled light in a fitted rod)
+and the fit *still* returned +0.18/+0.12. The lever there was tiny (amps
+0.004–0.019), so contamination set a residual floor but no slope to slide down.
+
+### 9.3 Orientation — ruled out
+
+`orientation.py`: rod-direction spread. All sets span 85–90° and cover 5–6 of
+6 fifteen-degree sectors (A 88.8°, B 84.6°, C 90.0°, early 4-rod 76.5°).
+Orientation is **adequate everywhere** — not the limiting factor.
+
+### 9.4 "z0 can't explain anything, so Z5–Z8 must compensate?" — no
+
+`z_candidate_um=(0,)` does **not** disable the depth model: the PSF is still
+evaluated at each rod's *own* depth (defocus on plane k = `(k−z_s)·z_step`);
+the candidate grid is only a correction on top of the derived z. C3 showed that
+correction is worth 0.9 % of cost and ~0.01 w of coefficients. If Z5–Z8 were
+compensating z-error, freeing z would *shrink* them — it doesn't (1.500 →
+1.500; at bound 5 they even *grow* to −4.07, and each extra wave buys <0.6
+pts — the signature of an unconstrained parameter, not compensation).
+
+### 9.5 Can sparse-but-more rods compensate the "lever" problem? — yes, pick by SNR
+
+The lever scales with **total modelled signal** (brightness × number of
+independent rods); the hazard scales with **local haze** — independent knobs.
+C3's bright rods (amps 0.08–0.34) have a 30–100× bigger lever than the early
+crop (0.004–0.019). Caveat: a rod can be perfectly isolated *and* useless —
+C3 r2 has 0 % contamination but a fitted amplitude of exactly 0 (its tube
+light is all background). So selection should rank by (1) tube signal / peak
+SNR, (2) 3-D isolation (no neighbour within ~4 planes), (3) flat surrounding
+ring (the haze test), (4) orientation spread — **not by rod count or
+cleanliness alone**. That is the first, defensible tile of
+`plans/tiled-field-scan.md`.
+
+### 9.6 Consequence for dense/light regions — and the fix that's actually needed
+
+**Dense, light regions are bad for fitting, for two compounding reasons:**
+(i) dense → out-of-focus haze that the per-plane-constant background cannot
+model (drives A to 55 %); (ii) light + isolated → big lever, so the fitter has
+room to slide down the haze-slope to the bound. Neither is a bug; it's the
+model. To fit dense regions you need a **spatially-varying (ring/haze)
+background** in the forward model, *not* better Zernikes. To get a real
+aberration estimate on the present data, fit **sparse, bright, isolated**
+rods at bound 0.5.
+
+**In flight (2026-11-05):** the bound-0.5 family — `C_z3_b05_c3` (3 bright
+C rods, the live end-to-end proof of the `unexpl()` fix), `A_z3_b05_fullclean`
+(7), `B_z3_b05_fullclean` (7), `C_z3_b05_full` (9) — 4 parallel nohup jobs
+started 08:09 UTC, watcher → `weekend_logs/z_sweep/DONE.b05`. This tests
+"bright+isolated vs dim+crowded at the bound that matters (0.5)".
+
+### Runs on nodeasb01g (updated 2026-11-05 — update when stale)
 
 All throwaway runners live in `/asbdata/moblaende26/zerniky/` on
 nodeasb01g (NOT in git — `# THROWAWAY` convention); outputs under
-`weekend_logs/`. Check with: `tmux ls`,
-`ls weekend_logs/{z_sweep,c3probe,resid_probe}/*.json`,
-`tail weekend_logs/*/launch.log`.
+`weekend_logs/`. Node otherwise idle. Check with:
+`ps -eo pid,cmd | grep 'run_z_swee[p]'`,
+`ls weekend_logs/z_sweep/*.json`, `cat weekend_logs/z_sweep/DONE.b05`.
 
-| tmux session | script | job | since |
-|---|---|---|---|
-| `c3probe` | `run_c3probe.py` | C3 z3_b15 (3 clean C rods, ±3 µm z, bound 1.5), then z0_b5 | 09:03 |
-| `z_c3_z0b15` | `run_c3probe.py z0_b15` | C3 z0_b15 (z fixed) | 10:48 |
-| `zsweep` | `run_z_sweep.py` | A z3_b15 (9 rods, ±3 µm, 1.5), then A z0 / C z3 / C z0 (skip-if-done) | 10:04 |
-| `z_a_z0` | `run_z_sweep.py A_z0_b15` | A z0 (z fixed) | 10:48 |
-| `z_c_z0` / `z_c_z3` | `run_z_sweep.py C_z0_b15` / `C_z3_b15` | C z0 / C z3 | 10:48 |
-| `—` | `run_width_probe.py` | **DONE 14:39 UTC** — width sweep 0.5–0.8 µm: rod width ruled out (≤0.8 pts effect, see c-sweep section) | 14:18 |
-| — (no tmux) | `run_fieldtest_diag.py A` / `B` | diag 8-fit run: A full s1 + both `full_clean` | Nov 3 12:44 |
+| runner | job | state |
+|---|---|---|
+| `run_z_sweep.py` ×4 nohup + watcher | **bound-0.5 wave**: C3 (3 bright) + A/B `full_clean` (7) + C full (9), all z3, bound 0.5 (launched 2026-11-05 08:09) | **running** — C3 ≈1 h, 9-rod ≈3–10 h; watcher writes `z_sweep/DONE.b05` |
+| `run_z_sweep.py` | 9-rod z3/z0_b15 (A/C) | **held** — DRY timed out in `fit_3d` before reaching `unexpl()`; patch unit-verified (`test_unexpl_patch.py`); relaunch = one command after the b0.5 wave proves the real path |
+| `run_fieldtest_diag.py A/B/C` | corrected 8-fit diagnostic | **DONE 01:42 UTC Nov 5 — 8/8, all pinned** (final read-out above) |
+| `run_c3probe.py` + one-shots | C3 z3/z0 × b15/b5 | **DONE 22:09 UTC Nov 4 — 4/4** (C3 section above) |
+| `run_width_probe.py` | width sweep 0.5–0.8 µm | **DONE 14:39 UTC Nov 4** — width ruled out |
+| `run_z_reg.py` + one-shots | z-ladder middle rungs (A z05/z1, C z05/z1) | killed 12:25 UTC Nov 4 on capacity; not re-run — relaunch cheap if midpoints are needed |
 
 **Job design:** z-window ladder {z3 = ±3 µm/13 cands, z0 = fixed} ×
 {A, C} 9-rod + C3 3-clean-rod, all at `coeff_bound` 1.5 — the z0-vs-z3

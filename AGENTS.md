@@ -76,15 +76,34 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   A/B/C fits (2026-11-02) *also* all pinned, but a 2026-11-03 audit found
   their throwaway runner had a **z-derivation bug** (every interior rod
   placed 2–9 µm too high) → those fits are confounded. The corrected 8-fit
-  diagnostic is on nodeasb01g: **5/8 done (2026-11-04) and all still
-  pinned at ±1.5** — C and B full complete, seeds bit-identical (a
-  fixed point: `fit_3d` resets z-state per start, so this is NOT seed
-  stability); A full s1 + full_clean pending. A forward-model probe
-  (c-sweep, 2026-11-04) shows the pinned coefficients explain only
-  ~4 points more tube signal than ZERO aberration → the data are
-  ~diffraction-limited and the pinning is a flat cost valley; the
-  running **z-sweep** (z fixed vs ±3 µm, A/C 9-rod + C 3-rod) tests
-  whether the per-rod z-shift is the escape channel. Runs in flight,
+  diagnostic on nodeasb01g **completed 2026-11-05: 8/8 ALL pin at ±1.5**
+  with correct z and clean rods — the full_clean de-contamination did
+  NOT de-pin (A ~unchanged; B ends with three modes at the bound, Z5
+  flipped sign), and seeds are bit-identical in all three regions (a
+  fixed point: `fit_3d` resets z-state per start, NOT seed stability).
+  A forward-model probe (c-sweep, 2026-11-04) shows the pinned
+  coefficients explain only ~4 points more tube signal than ZERO
+  aberration → the data are ~diffraction-limited. The C3 z0-vs-z3 probe
+  pins in BOTH arms (freeing z buys 0.9 % cost) → per the §8 matrix the
+  per-rod z-shift is NOT the escape channel either: **Z5–Z8 are
+  under-determined at this SNR — report bounds / a regularised
+  posterior, not point estimates**. Cause analysis (FIELDTEST
+  §9, 2026-11-05): pinning driver is **diffuse out-of-focus haze** the
+  per-plane-constant background cannot model (region A background
+  swings 139→354 counts; C flat) — NOT neighbour tube overlap (≤0.08,
+  uncorrelated with residuals), NOT orientation (all sets span 85–90°),
+  NOT rod quality/count. Consequence: **dense, light regions are bad
+  for fitting**; fit sparse, bright, isolated rods at bound 0.5; a
+  spatially-varying (ring) background is the fix for dense regions.
+  Next probes: coefficient prior (O-z4), more/better-oriented rods,
+  `plans/tiled-field-scan.md`. The 9-rod z_sweep (A/C z0-vs-z3, the
+  designated primary contrast) crashed 2026-11-04 in its `unexpl()`
+  metric AFTER the fits completed (~35 h of fits lost, nothing written
+  — same ValueError width_probe.py had); fixed and unit-verified
+  (`test_unexpl_patch.py`) 2026-11-05, b15 relaunch held in favour of
+  the bound-0.5 wave (C3 + A/B full_clean + C full, 4 parallel jobs,
+  launched 08:09 UTC 2026-11-05, watcher → `weekend_logs/z_sweep/DONE.b05`).
+  Run states,
   probe results, and interpretation: `FIELDTEST_results_one_set_vs_Zmap.md`
   §8 (branch `feat/fit-speedups`); follow-up plans:
   `plans/z-range-derivation.md`, `plans/tiled-field-scan.md`.
