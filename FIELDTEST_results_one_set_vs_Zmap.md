@@ -530,13 +530,17 @@ patched `run_z_sweep.py` (z0 = trust derived z, per §9.4), run on nodeasb01
 | T LOO −r7 | 3–7 | 7 | 0.5 | +0.139 | −0.057 | +0.025 | +0.002 | no | 0.687 |
 | T LOO −r8 | 3–7 | 7 | 0.5 | +0.112 | −0.112 | +0.029 | +0.004 | no | 0.684 |
 | S z0_b05 | 40–56 | 6 | 0.5 | **+0.500** | **+0.500** | +0.124 | +0.102 | **YES** | 0.559 |
-| S z0_b15 | 40–56 | 6 | 1.5 | in flight (both nodes) | | | | | |
-| D z0_b05 (−r5) | 48–60 | 5 | 0.5 | in flight | | | | | |
-| E z0_b05 (−r2,−r3,−r7) | 58–67 | 4 | 0.5 | in flight | | | | | |
+| S z0_b15 | 40–56 | 6 | 1.5 | +1.143 | +0.273 | +0.172 | +0.165 | **no** | 0.557 |
+| E z0_b05_sub (full, bad-z r2/r3/r7) | 58–67 | 7 | 0.5 | **+0.500** | +0.283 | +0.034 | −0.047 | **YES** | 0.606 |
+| E z0_b05_eclean (−r2,−r3,−r7) | 58–67 | 4 (r1,r4,r5,r6) | 0.5 | +0.048 | −0.195 | +0.008 | −0.031 | **no** | 0.467 |
+| D z0_b05_dclean (−r5) | 48.5–59.5 | 5 (r1–r4,r6) | 0.5 | −0.180 | −0.220 | +0.007 | −0.064 | **no** | 0.553 |
+| D z0_b05_nor5 (full, +r5) | 48.5–64.5 | 6 (incl. bad-z r5) | 0.5 | −0.309 | −0.229 | +0.021 | −0.086 | **no** | 0.637 |
 | early crop (Oct, reference) | 3.5–10 | 4 | 0.5 | +0.180 | +0.123 | +0.008 | −0.015 | no | — |
 | A/B/C full (§8) | 26–65 | 7–9 | 1.5 | pinned ±1.5 | | | | yes | 0.56–0.68 |
-| A/B/C b0.5 wave (z3) | 26–65 | 3–9 | 0.5 | in flight (nodeasb01g) | | | | | |
-| C3 b0.5 (z3) | 51–64 | 3 | 0.5 | in flight (nodeasb01g) | | | | | |
+| A z3_b05_fullclean | 26.5–39 | 7 | 0.5 | **−0.500** | **−0.500** | +0.049 | +0.026 | **YES** | 0.636 |
+| C z3_b05_full | 48–65.5 | 9 | 0.5 | **+0.500** | **+0.500** | −0.001 | +0.055 | **YES** | 0.329 |
+| C3 z3_b05_c3 | 51–64 | 3 | 0.5 | **+0.500** | **+0.500** | +0.010 | +0.115 | **YES** | 0.250 |
+| B z3_b05_fullclean | 31–38 | 7 | 0.5 | still running (>6 h) | | | | | |
 
 ### 10.2 T leave-one-out: the astigmatism AXIS is rod-composition-driven
 
@@ -548,10 +552,37 @@ is what fixes the astigmatism axis; r6 out-signals r8 ~6×, so the axis
 follows r6. The earlier `tsub` subset test did NOT contradict this — it
 dropped r8 (r6's partner), which *locked* the axis onto r6.
 
-**Consequence: never report signed Z5/Z6 from a single tile.** The stable
-quantities are the astigmatism **magnitude (~0.15–0.2 w here)** and Z7/Z8 ≈ 0.
-This also retroactively explains the deep-region sign flips (A −,− vs C +,+):
-bound-pinning *plus* composition-driven axis — doubly uninterpretable.
+**Consequence (as of the T LOO alone): never report signed Z5/Z6 from a
+single tile.** The stable quantities are the astigmatism **magnitude
+(~0.15–0.2 w here)** and Z7/Z8 ≈ 0. This also retroactively explains the
+deep-region sign flips (A −,− vs C +,+): bound-pinning *plus*
+composition-driven axis — doubly uninterpretable.
+
+### 10.2a UPDATE (15:35 UTC): four independent de-pinned fits agree on Z6's sign
+
+The b0.5/z0 clean-rod wave landed four more OFF-BOUND fits. Their Z6 values:
+
+| fit | depth (µm) | rods | Z5 | Z6 |
+|---|---|---|---|---|
+| T z0_b05 | 3–7 | 8 | +0.109 | **−0.120** |
+| D z0_b05_dclean | 48.5–59.5 | 5 clean | −0.180 | **−0.220** |
+| D z0_b05_nor5 | 48.5–64.5 | 6 (incl. r5) | −0.309 | **−0.229** |
+| E z0_b05_eclean | 58–67 | 4 clean | +0.048 | **−0.195** |
+
+**Z6 is negative in 4/4 independent rod sets, three different fields,
+spanning the whole depth ladder: −0.120 … −0.229 (mean ≈ −0.19, spread
+±0.05).** The composition-flip mechanism (§10.2, T−r6 → +0.030) is real at
+single-rod granularity but does *not* randomise the sign at the set level.
+The only positive-Z6 measurement remains the Oct first crop (+0.123) — the
+weakest dataset of the five (4 fitted rods, 6/9 segments sheared).
+
+**Revised reporting rule:** Z6 ≈ **−0.2 w** is the current best estimate and
+may be reported *with* the LOO caveat; **Z5 remains unreportable**
+(+0.109 / −0.180 / −0.309 / +0.048 — sign still composition-driven). Z7/Z8 ≈ 0
+unchanged. Corroborating context: the Dolphin deconvolution A/B/C (§11) shows
+the *astigmatism structure* is too weak in the data to affect deconvolution —
+consistent with a small (~0.2 w) astigmatism whose sign the fitter, not the
+image, resolves.
 
 ### 10.3 Depth ladder: shallow de-pins, deep pins — at matched recipe
 
@@ -560,17 +591,32 @@ bound-pinning *plus* composition-driven axis — doubly uninterpretable.
 | 3–7 µm | **T** | 8 (sparse, bright: 4 rods SNR≥12) | **off-bound, +0.11/−0.12** |
 | 3.5–10 µm | early crop (Oct) | 4 (sparse, dim) | off-bound, +0.18/+0.12 |
 | 40–56 µm | **S** | 6 (sparse, dim) | **PINNED ±0.5** |
-| 26–65 µm | A/B/C | 7–9 (crowded) | pinned ±1.5 (b0.5 arms in flight) |
+| 48.5–59.5 µm | **D** clean | 5 (r1–r4,r6) | **off-bound, −0.18/−0.22** |
+| 48.5–64.5 µm | **D** full | 6 (incl. bad-z r5) | **off-bound, −0.31/−0.23** (unexpl worse: 0.637) |
+| 58–67 µm | **E** clean | 4 (r1,r4,r5,r6) | **off-bound, +0.05/−0.20** (best deep unexpl: 0.467) |
+| 58–67 µm | **E** full | 7 (incl. bad-z r2/r3/r7) | **PINNED +0.5/+0.28** |
+| 26–65 µm | A/B/C | 7–9 (crowded) | pinned (A −,−; C +,+; C3 +,+ at b0.5; B in flight) |
+
+**"The deep end pins" is dead.** With clean rods the two deepest regions
+(D, E) fit OFF-bound at ~0.2 w with the best unexplained fractions of the
+deep campaign (E_clean 0.467 — better than S's 0.559). What still pins is:
+S (clean rods, 40–56 µm), E *with* its three bad-z rods, and the crowded
+A/B/C sets. The discriminating variable moved from depth to **rod set
+quality/composition**: the E full-vs-clean pair is the same field, same
+recipe, differing only in the three mis-z rods — full pins, clean de-pins.
 
 S pinned **despite** amplitudes 5× below T's (0.001–0.006) — the low-lever
 regime that stayed near zero in region4/5/6 slid to the bound here, and S
 explains its tubes *better* than T (unexpl 0.56 vs 0.68), so haze is not the
-driver. Leading explanation: **depth-dependent spherical aberration (index
-mismatch) leaking into Z5–Z8**, exactly as the maintainer hypothesised
-("higher in the image is easier — probably also impacts the aberrations").
-Caveats: n=1 tile per depth; brightness and field position not yet
-disentangled (S is dimmer and elsewhere; the LOO shows within-tile
-composition effects of the same order).
+driver. The earlier leading explanation — depth-dependent spherical
+aberration leaking into Z5–Z8 — is **weakened but not dead**: it predicted
+the deep end should pin *worse*, yet clean-rod D/E fit freely at ~0.2 w.
+What survives is the maintainer's original observation in modified form:
+mis-z rods (E r2/r3/r7: +6…+11 planes) inject unmodelled defocus that the
+Z5–Z8 modes try to absorb, and *that* slides the fit to the bound — depth
+correlates with drawing error (§10.5), which is why deep *looked* like it
+pinned. S remains the one clean-rod deep pin (n=1; composition effects of
+the same order are documented in §10.2/§10.3a).
 
 ### 10.3a Which axis? — every single-cause hypothesis has a counter-example
 
@@ -581,8 +627,8 @@ each candidate axis fails as the sole discriminator:
 |---|---|
 | rod count | C3 (3 rods) **pins**; tright (3 rods) off-bound — same era/runner |
 | intensity / lever | merged (amps 0.0017) off-bound; region3 (amps 0.0021) **pins** — same lever, opposite outcome; C3 (bright) pins while T (brighter) doesn't |
-| rod quality (drawing) | S and T both pass the z/xy verification pipeline; same quality, opposite outcome; `full_clean` did not de-pin A/B (§8) |
-| depth | trend is real (shallow 4/4 off-bound, deep end pins) but the mid-band is MIXED: region5/6, tright, merged off vs region3, S, C3 on |
+| rod quality (bad-z rods) | **E full (7 rods, 3 mis-z) PINS vs E clean (4 rods) off-bound — same field, same recipe, only the rod set differs**; but S (clean) pins while D (clean) doesn't, and D+r5 stays off-bound — so bad-z rods *push toward* pinning without being necessary |
+| depth | **D_clean (48.5–59.5) and E_clean (58–67) off-bound falsify "deep pins"**; the trend survives only as: shallow 5/5 off-bound; every pinned fit is mid-deep (40–65) *or* contains mis-z/crowded rods |
 
 **The merged/S near-pair.** Comparing boxes: `fit_merged` (Oct 30, auto-
 extracted, 5 rods, OFF-bound at 0.2–0.3 w) and the user-drawn **S** set
@@ -634,14 +680,18 @@ bright+isolated+deep does not occur (§10.4).
 2. **Shallow (≤10 µm) sparse ensembles work**: two independent tiles, a
    month apart, both off-bound at ~0.1–0.2 w magnitude. The specimen is
    near-diffraction-limited at the coverslip end.
-3. **Shallow (≤10 µm) tiles are reliably off-bound** (4/4, two eras);
-   **mid-depth (25–55 µm) is a knife-edge** — mixed outcomes at matched
-   recipe, flipping with rod composition (§10.3a merged/S pair); the deep
-   end (≥48 µm) pins so far. Depth trends monotone but no single axis
-   (depth, intensity, count, quality) predicts the outcome (§10.3a).
-   Depth-aberration leak is the leading explanation; brightness and field
-   position are residual confounds.
-4. **Report amplitudes, never signed Z5/Z6 axes** (§10.2).
+3. **Shallow (≤10 µm) tiles are reliably off-bound** (two eras); **clean-rod
+   deep tiles are now ALSO off-bound** (D both variants 48.5–64.5 µm, E_clean
+   58–67 µm — the "deep end pins" reading is dead, §10.3). What pins: S
+   (clean, 40–56 µm, n=1), E with mis-z rods, and the crowded A/B/C sets.
+   Best current discriminator: **unmodelled per-rod defocus from mis-z rods
+   (and crowding), not depth itself** — depth correlated with drawing error
+   (§10.5), which masqueraded as a depth trend. No single axis
+   (depth, intensity, count, quality) is sufficient (§10.3a).
+4. **Signed Z6 is now reportable with the LOO caveat** — four independent
+   de-pinned sets agree: −0.120/−0.220/−0.229/−0.195 (§10.2a). **Z5 remains
+   unreportable** (+0.11/−0.18/−0.31/+0.05 across the same four fits).
+   Z7/Z8 ≈ 0 unchanged.
 5. **Remaining paths to a depth answer** (model-based, awaiting maintainer
    go-ahead since they touch the pinned mode set): (a) add spherical Z4 to
    the fitted modes on T (control: ~0 expected) vs S/D/E — rotationally
@@ -654,9 +704,10 @@ bright+isolated+deep does not occur (§10.4).
 
 ### 10.8 In flight at documentation time
 
-S z0_b15 (both nodes), T LOO r4, D z0_b05 (−r5), E z0_b05 (−r2,−r3,−r7)
-(nodeasb01); C3 b0.5 + A/B/C crowded b0.5 arms (nodeasb01g, nice 15).
-Rows to be appended on landing.
+Updated 15:40 UTC: everything has landed except **B_z3_b05_fullclean**
+(nodeasb01g, >6 h, still running — append on landing). The g-side
+S_z0_b15 duplicate is still running redundantly (result already final from
+the node01 JSON: +1.143/+0.273, §10.1); approved to kill on request.
 
 ### 10.9 Compute note
 
@@ -667,15 +718,42 @@ loaded g node. `plans/fit-speedups.md` O1 remains unimplemented — the
 contention behaviour (10 parallel fits thrashing a node) keeps making the
 case for it.
 
-### 10.10 Runs inventory (both nodes, 2026-11-05 ~12:00 UTC)
+### 10.10 Runs inventory (final wave, 2026-11-05 ~15:40 UTC)
 
 | node | job | state |
 |---|---|---|
-| nodeasb01 | D_z0_b05_nor5, E_z0_b05_sub | running (launched ~10:55) |
-| nodeasb01 | S_z0_b15 (dup), T LOO r4 | running |
-| nodeasb01g | S_z0_b05 (dup — will overwrite the node01 JSON with identical coeffs), S_z0_b15 | running |
-| nodeasb01g | C_z3_b05_c3, A/B full_clean b0.5, C full b0.5 (nice 15) | running (~2 h 40 m) |
-| both | everything else (diag, c3probe, width, scan) | DONE — see §8/§9/§10 |
+| nodeasb01g | B_z3_b05_fullclean | **running** (>6 h) |
+| nodeasb01g | S_z0_b15 (dup, redundant) | running — kill on request |
+| both | everything else (diag, c3probe, width, scan, T/S/D/E, LOO, b0.5 wave) | **DONE** — see §8/§9/§10 |
+
+### 10.11 Side result: Dolphin deconvolution A/B/C (2026-11-05)
+
+Independent of the fitting campaign: deconvolved the full AF488 stack
+(`ch1_AF488_raw.tif`) 4× with Dolphin v0.0.3 (RL, 6 it, cuda — identical
+settings to the Oct 28 run), differing only in the PSF template:
+**psf0** (Z=0,0,0,0), **psfT** (T coeffs), **firstcrop** (Oct coeffs, the
+existing run), and **psfS** (new control: psfT with the astigmatism
+rotated away — same radial profile and z-structure, anisotropy 0.000).
+Rod-peak read-out on the 13 campaign rods (T + D regions):
+
+| arm | T.r6 peak | D.r2 peak |
+|---|---|---|
+| raw | 4688 | 3535 |
+| psf0 | 5444 (+16 %) | 3286 (−7 %) |
+| psfT | 6965 (+49 %) | 4634 (+31 %) |
+| psfS | 7206 (+54 %) | 5322 (+50 %) |
+| firstcrop | 7855 (+68 %) | 5077 (+43 %) |
+
+Findings: (1) peaks order by **kernel breadth**, not correctness — RL
+inflates peaks for any broader template; (2) **psfT ≈ psfS** (within 2–8 %,
+wins split) → the fitted *astigmatism structure* contributes nothing
+measurable to deconvolution; all gain is isotropic extra blur; (3) psf0 in
+the deep region *lowers* the peak — assuming less blur than exists makes RL
+fail to sharpen. Consequence: deconvolution cannot adjudicate the Z5/Z6
+sign question (§10.2a's evidence comes from the fitter, not the image).
+Artifacts: `weekend_logs/dolphin_ab/` (scripts, JSONs, panels); local
+copies in `results_local/dolphin_ab/`. Outputs: `ch1_AF488_dolphin_rl6it
+{,_psfT,_psfS,_psf0}.tif` (2.4 GB each).
 
 ---
 

@@ -104,12 +104,20 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   the bound-0.5 wave (C3 + A/B full_clean + C full, 4 parallel jobs,
   launched 08:09 UTC 2026-11-05, watcher → `weekend_logs/z_sweep/DONE.b05`).
   The maintainer then drew four sparse/deep ROI sets (FIELDTEST §10):
-  T (shallow, 3–7 µm) de-pins at +0.11/−0.12 and reproduces the Oct early
-  crop; S (40–56 µm) pins at ±0.5 despite 5× lower amplitudes; the
-  bright+isolated+deep cell does not exist in this specimen (D/E + full-field
-  scan); the Z5/Z6 axis is rod-composition-driven (LOO: dropping one rod
-  flips signs) → report amplitudes, never signed axes. Z4-spherical mode
-  test proposed, awaiting maintainer go-ahead. nodeasb01 is reachable again
+  T (shallow, 3–7 µm) de-pins at +0.11/−0.12; the b0.5/z0 clean wave
+  completed 2026-11-05 ~15:20: **D (both variants) and E_clean de-pin at
+  depth (48.5–64.5 / 58–67 µm)** — "deep pins" is dead; what pins is S
+  (clean, n=1), E with its mis-z rods, and crowded A/B/C (A −,−, C +,+,
+  C3 +,+, all at b0.5); the best discriminator is now unmodelled per-rod
+  defocus (mis-z rods, crowding), not depth. **Signed Z6 is reportable
+  with the LOO caveat: 4/4 independent de-pinned sets give Z6 ≈ −0.12…
+  −0.23** (Z5 still flips: +0.11/−0.18/−0.31/+0.05; Z7/Z8 ≈ 0).
+  the bright+isolated+deep cell does not exist in this specimen (D/E +
+  full-field scan). Side result (§10.11): Dolphin A/B/C deconvolution —
+  rod peaks order by PSF breadth, psfT ≈ isotropic twin psfS → the fitted
+  astigmatism structure does not affect deconvolution; deconvolution
+  cannot adjudicate the Z6 sign. Z4-spherical mode test proposed, awaiting
+  maintainer go-ahead. nodeasb01 is reachable again
   (idle, 256 cores — T-sized fits: 9 min vs ~1 h projected on a loaded node).
   Run states,
   probe results, and interpretation: `FIELDTEST_results_one_set_vs_Zmap.md`
