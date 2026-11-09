@@ -39,6 +39,14 @@ def test_l2_is_identity_for_identical_patches():
     assert g == pytest.approx(1.0, rel=0.02)
     assert c == pytest.approx(0.0, abs=0.01)
 
+def test_l2_degenerate_pair_returns_target_uncorrected():
+    rng = np.random.default_rng(9)
+    ref = _texture(3).astype(np.float32) / 255.0
+    target = rng.random((128, 128)).astype(np.float32)   # uncorrelated -> g ~ 0
+    matched, g, c = flatfield.l2_match(ref, target, f_max=0.15)
+    assert abs(g) < 0.1
+    np.testing.assert_allclose(matched, target)
+
 def test_estimate_empty_background():
     tile = np.full((64, 64), 12.0, np.float32)
     tile += np.random.default_rng(7).normal(scale=0.5, size=tile.shape).astype(np.float32)

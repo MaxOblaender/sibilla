@@ -25,6 +25,7 @@ __all__ = ["l1_normalize", "l2_match", "estimate_empty_background"]
 
 _L2_DEFAULT_F_MAX = 0.15
 _MAD_TO_SIGMA = 1.4826  # 1/Phi^-1(0.75): median absolute deviation -> sigma
+_G_MIN = 0.1  # fits with |g| below this are degenerate: never apply the inverse
 
 
 def l1_normalize(
@@ -77,8 +78,14 @@ def l2_match(
     copy of ``target`` brought onto the reference's gain/offset and only
     spectral shape differences remain.
 
-    Returns ``(matched, g, c)``. Raises :class:`ValueError` on shape mismatch
-    or a degenerate fit (reference with no usable low-frequency structure).
+    Returns ``(matched, g, c)``. The correction is applied only when the fit
+    is non-degenerate: if the fitted gain is non-finite or ``|g| < _G_MIN``
+    (e.g. an empty patch vs a textured reference), the inverse
+    ``(target - c)/g`` would explode the patch by ``1/|g|``, so ``matched``
+    is an uncorrected copy of ``target`` while ``g``/``c`` still report the
+    fitted values for the record. Raises :class:`ValueError` on shape
+    mismatch or a rank-deficient fit (reference with no usable
+    low-frequency structure).
     """
     if f_max is None:
         f_max = _L2_DEFAULT_F_MAX
@@ -96,11 +103,16 @@ def l2_match(
     design = np.column_stack([ref_low.ravel(), np.ones(ref_low.size)])
     fit, _, rank, _ = np.linalg.lstsq(design, target_low.ravel(), rcond=None)
     g, c = float(fit[0]), float(fit[1])
-    if rank < 2 or not np.isfinite(g) or g == 0:
+    if rank < 2:
         raise ValueError(
             "l2_match: degenerate low-frequency fit; the reference patch "
             "has no usable structure to match against"
         )
+    if not np.isfinite(g) or abs(g) < _G_MIN:
+        # Degenerate gain (e.g. empty patch vs textured reference): the
+        # inverse (target - c)/g would explode the patch by 1/|g|. Pass the
+        # target through UNCORRECTED; g/c still report the fitted values.
+        return target.copy(), g, c
     matched = ((target - c) / g).astype(np.float32)
     return matched, g, c
 
