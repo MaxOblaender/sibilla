@@ -47,3 +47,25 @@ def test_manual_override_takes_priority(tmp_path):
     p = tmp_path / "manual.json"
     p.write_text('[[10.0, 20.0], [30.0, 40.0]]')
     assert spots.load_manual(p) == [(10.0, 20.0), (30.0, 40.0)]
+
+def test_thin_bar_is_rejected_as_elongated():
+    """Pin for the elongated gate (final-review N1): a thin bar is far below
+    the size gate (2x24 bar: equivalent radius ~3.9 px <= 8, second-moment
+    aspect ~13.8) and must be rejected as elongated, in BOTH orientations.
+    This is the gate whose aspect formula once slipped through inverted and
+    left the whole suite green. The bar is 2 px wide ON PURPOSE: a perfectly
+    straight 1-px line has lmin == 0 and hits the degenerate ``inf`` branch
+    BEFORE the aspect ratio is evaluated, so it cannot catch a flipped
+    formula (measured). The background carries noise: a perfectly flat one
+    has sigma_bg == 0 and detect() refuses to threshold (returns [])."""
+    img = np.full((128, 128), 0.05, np.float32)
+    img += np.random.default_rng(0).normal(scale=0.005, size=img.shape).astype(np.float32)
+    img[60:62, 40:64] = 0.9       # 2x24 bar: radius ~3.9 px, aspect ~13.8
+    res = spots.detect(img)
+    assert res and all(not s.accepted for s in res)
+    assert {s.reason for s in res} == {"elongated"}
+    img_v = np.full((128, 128), 0.05, np.float32)
+    img_v += np.random.default_rng(0).normal(scale=0.005, size=img_v.shape).astype(np.float32)
+    img_v[40:64, 60:62] = 0.9     # vertical canary: orientation invariance
+    res_v = spots.detect(img_v)
+    assert res_v and {s.reason for s in res_v} == {"elongated"}

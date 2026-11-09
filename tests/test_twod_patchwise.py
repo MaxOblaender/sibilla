@@ -105,3 +105,55 @@ def test_indeterminate_patches_skip_rl_like_unrecoverable():
         obj, "CH1", size=256, run_rl=False, min_dz_identification=50.0)
     assert all(not r.indeterminate for r in recs_bg)
     assert np.array_equal(out, out_bg)
+
+
+def test_patchwise_non_square_tile_reassembles_to_own_shape():
+    """Final-review canary: a NON-SQUARE tile pins the y/x orientation of
+    the patch grid, the records and the reassembly — a y0/x0 transpose
+    would misplace every patch (and crash on the patch shape) but passes on
+    the square fixtures elsewhere in this file."""
+    tile = _tissue_tile(3)[:384]  # 384x512
+    out, recs = patchwise.deconvolve_patchwise(tile, "CH1", size=256, n_iter=2)
+    assert out.shape == tile.shape
+    expected = {(y0, x0) for _, y0, x0 in patchwise.patch_grid(tile.shape, 256, 0.25)}
+    assert {(r.y0, r.x0) for r in recs} == expected
+    assert min(r.y0 for r in recs) == 0 and max(r.y0 + r.size for r in recs) == 384
+    assert min(r.x0 for r in recs) == 0 and max(r.x0 + r.size for r in recs) == 512
+
+
+def _flat_background_tile():
+    """Tile whose lowest quartile is EXACTLY constant (the 8-bit pathology:
+    every background pixel rounds to the same DN): ~72 % of the pixels sit
+    at one value, a noisy textured disk covers the rest, so the background
+    estimator's MAD sigma is exactly 0."""
+    n = 512
+    rng = np.random.default_rng(7)
+    tile = np.full((n, n), 0.02, np.float32)
+    F = sp_fft.fft2(rng.normal(size=(n, n)))
+    fy = sp_fft.fftfreq(n)[:, None]
+    fx = sp_fft.fftfreq(n)[None, :]
+    F *= np.exp(-((fx**2 + fy**2) / (2 * 0.08**2)))
+    tex = np.real(sp_fft.ifft2(F))
+    tex = (tex - tex.min()) / (tex.max() - tex.min())
+    yy, xx = np.mgrid[0:n, 0:n]
+    region = np.hypot(yy - n / 2, xx - n / 2) < n * 0.30
+    tile[region] += 0.1 + 0.4 * tex[region]  # keeps every structure pixel > bg
+    tile[region] += rng.normal(scale=0.01, size=int(region.sum())).astype(np.float32)
+    return np.clip(tile, 0.0, None).astype(np.float32)
+
+
+def test_degenerate_sigma_floor_keeps_rl_off_flat_background_tiles():
+    """Pin for patchwise's conditional sigma floor (Task-9 deferred): on an
+    exactly-flat background the MAD sigma is 0, and sigma = 0 would let the
+    knee test pass at every frequency — the measured W042 explosion path
+    (1e12-1e55 recovery spikes). With the 1-DN floor substituted the knee is
+    selective and every near-flat patch is flagged unrecoverable: RL never
+    runs. (Measured with the floor deleted: 9/9 patches run RL, iterations
+    6-22, recovery up to 136x — all FINITE, the §7 early stop prevents
+    inf/nan on synthetic fixtures — so the pin is "RL must not run", not
+    "recovery is finite".)"""
+    tile = _flat_background_tile()
+    out, recs = patchwise.deconvolve_patchwise(tile, "CH1", size=256, n_iter=30)
+    assert out.shape == tile.shape and np.isfinite(out).all()
+    assert all(r.unrecoverable and r.iterations == 0 and r.recovery is None
+               for r in recs)

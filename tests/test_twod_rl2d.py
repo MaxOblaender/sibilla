@@ -61,5 +61,10 @@ def test_pedestal_is_not_amplified_into_texture():
     p = psf2d(15.0, "CH1", grid_size=128)
     empty = np.zeros((128, 128), np.float32)
     with_ped = empty + 0.3
+    # pedestal shot noise: a noiseless pedestal cannot discriminate a
+    # subtract-then-deconvolve implementation (measured: correct path max
+    # 0.047 < 0.05, subtract-first 0.052 — fails the bound)
+    with_ped = with_ped + np.random.default_rng(5).normal(
+        scale=0.01, size=with_ped.shape).astype(np.float32)
     res = rl2d.rl2d(with_ped, p, background=0.3, n_iter=25)
     assert res.image.max() < 0.05
