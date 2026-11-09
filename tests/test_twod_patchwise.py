@@ -84,3 +84,24 @@ def test_rl_early_stops_on_tissue_fixture():
     full = [r for r in recs if r.iterations > 0]
     assert full, "expected at least one patch to run RL"
     assert all(r.iterations < 30 for r in full)
+
+def test_indeterminate_patches_skip_rl_like_unrecoverable():
+    """Round-4 pin: with ``min_dz_identification > 0``, patches whose dz
+    fit cannot exclude dz = 0 (here every patch of the in-focus tissue
+    tile — measured dz_err = inf: the MTF² model is stationary in dz at
+    the 0 bound, so the Jacobian is singular) take the skip-RL path with
+    their own record class — dz_um=nan, iterations=0, recovery=None,
+    unrecoverable=False, indeterminate=True — and the reassembled tile is
+    pixel-identical to the background-only arm (L1+L2+feather only). The
+    control arm never sets the flag (dz is not attempted there)."""
+    obj = _tissue_tile(2)
+    out, recs = patchwise.deconvolve_patchwise(
+        obj, "CH1", size=256, n_iter=2, min_dz_identification=50.0)
+    assert recs
+    assert all(r.indeterminate and not r.unrecoverable for r in recs)
+    assert all(np.isnan(r.dz_um) and r.iterations == 0 and r.recovery is None
+               for r in recs)
+    out_bg, recs_bg = patchwise.deconvolve_patchwise(
+        obj, "CH1", size=256, run_rl=False, min_dz_identification=50.0)
+    assert all(not r.indeterminate for r in recs_bg)
+    assert np.array_equal(out, out_bg)

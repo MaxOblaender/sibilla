@@ -25,6 +25,15 @@ Load-bearing rules:
   collapsed recovery horizon means RL would only amplify noise; the patch
   passes through at its L2-matched value and the record says so
   (``unrecoverable=True``, ``iterations=0``, ``recovery=None``).
+- **Indeterminate dz patches are skipped, not deconvolved** (round-4
+  ruling): with ``min_dz_identification > 0`` a patch whose dz fit cannot
+  exclude dz = 0 at that error level (``indeterminate=True``,
+  ``dz_um=nan``) carries no identifiable defocus signal in its usable
+  band — RL with an assumed PSF would be as wrong as RL with no PSF — so
+  it takes the same skip-RL path as an unrecoverable patch, with its own
+  record class (``indeterminate=True``, ``unrecoverable=False``). The
+  default ``min_dz_identification=0.0`` keeps the historical behaviour
+  (every fittable patch is deconvolved with whatever dz the fit returns).
 - **``run_rl=False`` is the background-only control arm** (spec §2
   three-arm comparison): the identical code path — L1, per-patch L2, same
   feathered reassembly — with dz estimation and RL skipped; records carry
@@ -113,6 +122,13 @@ class PatchRecord:
         whenever RL did not run (control arm or unrecoverable patch).
     unrecoverable : the estimator's horizon flag — the patch was passed
         through without deconvolution.
+    indeterminate : the estimator's "no opinion" flag (round 4; last
+        field): the dz fit could not exclude dz = 0 at
+        ``min_dz_identification`` — the patch is informationless for
+        deconvolution and was passed through without RL
+        (``dz_um=nan``, ``iterations=0``, ``recovery=None``,
+        ``unrecoverable=False``). Always False for the control arm (dz
+        not attempted).
     """
 
     row: int
@@ -128,6 +144,7 @@ class PatchRecord:
     c: float
     recovery: float | None
     unrecoverable: bool
+    indeterminate: bool = False
 
 
 def sharpness(img: np.ndarray) -> float:
@@ -315,6 +332,7 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
                          size: int = 512, overlap: float = 0.25,
                          n_iter: int = 30,
                          run_rl: bool = True,
+                         min_dz_identification: float = 0.0,
                          ) -> tuple[np.ndarray, list[PatchRecord]]:
     """Deconvolve one tile patch by patch; reassemble with feathering.
 
@@ -343,6 +361,18 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
         :attr:`PatchRecord.iterations` reports the iterations actually
         applied.
     run_rl : ``False`` = background-only control arm (see module docstring).
+    min_dz_identification : µm; passed through to
+        :func:`sibilla.twod.dz_estimate.estimate_dz`. 0.0 (default) keeps
+        the historical behaviour (every fittable patch is deconvolved with
+        whatever dz the fit returns). With ``m > 0``, a patch whose dz fit
+        cannot exclude dz = 0 (``dz_err_um >= m`` and ``|dz| < dz_err_um``,
+        or a non-finite error bar from a singular Jacobian) is
+        *indeterminate* — informationless for deconvolution — and takes
+        the same skip-RL path as an unrecoverable patch: ``dz_um=nan``,
+        ``iterations=0``, ``recovery=None``, record
+        ``indeterminate=True`` (never ``unrecoverable=True``; the two
+        classes stay distinct). The control arm never sets it (dz is not
+        attempted there).
 
     Returns ``(out, records)``: the reassembled tile (float32, tile shape)
     and one :class:`PatchRecord` per patch of ``patch_grid(tile.shape,
@@ -451,7 +481,7 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
                 row=row, col=col, y0=y0, x0=x0, size=size,
                 dz_um=float("nan"), dz_err_um=float("nan"),
                 f_horizon=float("nan"), iterations=0, g=g, c=c,
-                recovery=None, unrecoverable=False,
+                recovery=None, unrecoverable=False, indeterminate=False,
             ))
             acc[y0:y0 + size, x0:x0 + size] += w2 * matched
             wsum[y0:y0 + size, x0:x0 + size] += w2
@@ -460,7 +490,8 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
         # l2_match passes degenerate fits (|g| < _G_MIN) through uncorrected;
         # the patch then keeps its own frame, so no 1/|g| noise rescale.
         sigma = sigma_tile / abs(g) if abs(g) >= flatfield._G_MIN else sigma_tile
-        dz = dz_estimate.estimate_dz(matched, ref, s_obj, freqs, channel, sigma)
+        dz = dz_estimate.estimate_dz(matched, ref, s_obj, freqs, channel, sigma,
+                                     min_dz_identification=min_dz_identification)
 
         if dz.unrecoverable:  # skip RL: pass the matched patch through
             records.append(PatchRecord(
@@ -468,6 +499,22 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
                 dz_um=0.0, dz_err_um=float("nan"),
                 f_horizon=dz.f_horizon, iterations=0, g=g, c=c,
                 recovery=None, unrecoverable=True,
+            ))
+            acc[y0:y0 + size, x0:x0 + size] += w2 * matched
+            wsum[y0:y0 + size, x0:x0 + size] += w2
+            continue
+
+        if dz.indeterminate:
+            # "no opinion" (round-4 ruling): the fit cannot exclude dz = 0,
+            # so the patch carries no identifiable defocus signal — RL with
+            # an assumed PSF would be as wrong as RL with no PSF. Same
+            # skip-RL path as unrecoverable, but its own record class (the
+            # dz fit DID run: f_horizon/dz_err are meaningful QC, dz is not).
+            records.append(PatchRecord(
+                row=row, col=col, y0=y0, x0=x0, size=size,
+                dz_um=float("nan"), dz_err_um=dz.dz_err_um,
+                f_horizon=dz.f_horizon, iterations=0, g=g, c=c,
+                recovery=None, unrecoverable=False, indeterminate=True,
             ))
             acc[y0:y0 + size, x0:x0 + size] += w2 * matched
             wsum[y0:y0 + size, x0:x0 + size] += w2

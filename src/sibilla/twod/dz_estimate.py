@@ -84,7 +84,7 @@ class DzResult:
         when the covariance is singular (at the dz = 0 bound the model is
         stationary in dz). The sign of dz is unobservable from a single
         patch's power spectrum (|OTF(−dz)| = |OTF(dz)|), hence the
-        magnitude.
+        magnitude. NaN when ``indeterminate`` (see below).
     slope : fitted power-law exponent of the ratio model (NaN when
         unrecoverable); ~0 for a well-anchored pair of patches.
     f_horizon : highest frequency (cyc/px) where the observed ratio still
@@ -93,6 +93,13 @@ class DzResult:
         the fit band has fewer than ``MIN_BAND_BINS`` usable bins.
     haze_dominated : True when the ratio is not a monotone decreasing
         MTF-like decay (see module docstring).
+    indeterminate : True when ``min_dz_identification > 0`` and the fit
+        cannot distinguish its best-fit dz from zero at that error level
+        (:func:`estimate_dz`'s "no opinion" path): ``dz_um`` is then NaN
+        and the patch is informationless for deconvolution — downstream
+        (:func:`sibilla.twod.patchwise.deconvolve_patchwise`) skips RL on
+        it exactly as on an ``unrecoverable`` patch. False when the
+        criterion is disabled (the default) or dz = 0 is excluded.
     """
 
     dz_um: float
@@ -101,6 +108,7 @@ class DzResult:
     f_horizon: float
     unrecoverable: bool
     haze_dominated: bool
+    indeterminate: bool = False
 
 
 def radial_bins(shape: tuple[int, int], n_bins: int = 24) -> list[np.ndarray]:
@@ -181,7 +189,8 @@ def _ratio_model_residuals(params, f_band, y, channel, grid_size):
 
 def estimate_dz(target: np.ndarray, ref: np.ndarray,
                 object_spectrum: np.ndarray, freqs: np.ndarray,
-                channel: str, noise_sigma: float) -> DzResult:
+                channel: str, noise_sigma: float, *,
+                min_dz_identification: float = 0.0) -> DzResult:
     """Fit the defocus of ``target`` against the in-focus-anchored ratio.
 
     Parameters
@@ -199,6 +208,30 @@ def estimate_dz(target: np.ndarray, ref: np.ndarray,
         debiased by the known noise power ``noise_sigma²`` before the
         ratio, and the knee/horizon logic cuts where the residual signal
         approaches the noise floor.
+    min_dz_identification : µm; 0.0 (default) disables the indeterminacy
+        path (historical behaviour: every fittable patch gets a dz
+        number). With ``m > 0``, a fit whose error bar cannot exclude the
+        dz = 0 hypothesis is *indeterminate* — the estimator's "no
+        opinion" answer for patches that carry no identifiable defocus
+        signal in their usable band. Criterion (MEASURED FORMULATION,
+        round-4 ruling): indeterminate iff
+        ``dz_err_um >= m and abs(dz_um) < dz_err_um`` — the dz = 0
+        hypothesis lies within 1σ of the best fit AND the error bar
+        itself is at least ``m`` µm. A non-finite error bar (inf/nan from
+        a singular Jacobian — the MTF² model is stationary in dz at the
+        0 bound, so a fit pinned there has no usable curvature) is always
+        indeterminate when ``m > 0``. Measured examples (pinned synthetic:
+        smooth object, noise σ = 0.002, ref = object): the dz = 0 case
+        fits ``dz = 1e-10, dz_err = inf`` → indeterminate under any
+        ``m > 0``; a true dz = 10 µm fits ``dz = 10.26 ± 16.72`` →
+        indeterminate under ``m = 5`` (zero within 1σ, error ≥ m) — the
+        honest answer, the fit cannot exclude dz = 0; a true dz = 20 µm
+        fits ``dz = 19.68 ± 9.24`` → determinate under ``m = 5`` (zero
+        excluded at 2.1σ). The Jacobian error bar is used *as-is* — no
+        residual-variance scaling, which would rescale every fit's error
+        bar (including pinned ones) and is not a trivial change. An
+        indeterminate result carries ``dz_um = NaN`` and
+        ``indeterminate = True``.
 
     The observed spectrum of ``target`` is recomputed on the same default
     binning; the model MTF² is evaluated on the target's own sampling grid
@@ -280,9 +313,27 @@ def estimate_dz(target: np.ndarray, ref: np.ndarray,
     haze_dominated = bool(
         rising or abs(slope) > HAZE_MAX_SLOPE or rms > HAZE_MAX_RMS
     )
+
+    # indeterminacy ("no opinion") path — see the min_dz_identification
+    # docstring above for the criterion and its measured examples. The
+    # forced two-parameter fit always returns *a* dz; when its error bar
+    # cannot exclude dz = 0 the number is noise, not signal, and nan is
+    # the honest value (measured on W042 round 3: every recoverable patch
+    # pinned at the 0 bound with a degenerate dz_err).
+    indeterminate = False
+    if min_dz_identification > 0.0:
+        if np.isfinite(dz_err):
+            indeterminate = bool(dz_err >= min_dz_identification
+                                 and abs(dz) < dz_err)
+        else:  # inf/nan: singular Jacobian -> no usable error bar at all
+            indeterminate = True
+    if indeterminate:
+        dz = float("nan")
+
     return DzResult(dz_um=dz, dz_err_um=dz_err, slope=slope,
                     f_horizon=f_horizon, unrecoverable=False,
-                    haze_dominated=haze_dominated)
+                    haze_dominated=haze_dominated,
+                    indeterminate=indeterminate)
 
 
 def sharpness(tile: np.ndarray) -> float:

@@ -53,6 +53,29 @@ def test_flat_background_is_unrecoverable():
     res = dzm.estimate_dz(flat, flat, s_obj, freqs, CH, noise_sigma=0.002)
     assert res.unrecoverable
 
+def test_min_dz_identification_flags_dz0_as_indeterminate():
+    """Round-4 pin: with ``min_dz_identification`` large the forced dz = 0
+    fit becomes "no opinion" (dz_um=nan, indeterminate=True), because the
+    MTF² model is stationary in dz at the 0 bound — measured on this
+    construction the fit returns dz = 1e-10 with dz_err = inf (singular
+    Jacobian), so dz = 0 can never be excluded from it. The default
+    0.0 keeps the historical behaviour: a number, not nan."""
+    obj = _object()
+    target = _blur(obj, 0.0)
+    rng = np.random.default_rng(1)
+    target = target + rng.normal(scale=0.002, size=target.shape).astype(np.float32)
+    bins = dzm.radial_bins(target.shape)
+    freqs, _ = dzm.radial_spectrum(target, bins)
+    s_obj = dzm.radial_spectrum(obj, bins)[1]
+    res = dzm.estimate_dz(target, obj, s_obj, freqs, CH, noise_sigma=0.002)
+    assert not res.indeterminate
+    assert np.isfinite(res.dz_um)
+    res50 = dzm.estimate_dz(target, obj, s_obj, freqs, CH, noise_sigma=0.002,
+                            min_dz_identification=50.0)
+    assert res50.indeterminate
+    assert np.isnan(res50.dz_um)
+    assert not res50.unrecoverable  # own class, distinct from unrecoverable
+
 def test_sharpness_ranks_in_focus_above_blurred():
     obj = _object(4)
     assert dzm.sharpness(obj) > dzm.sharpness(_blur(obj, 25.0))
