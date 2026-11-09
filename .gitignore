@@ -17,7 +17,11 @@
 
 # --- plans: default-ignored; a branch tracks a specific plan by negating it ---
 # (add lines like `!/plans/<topic>.md` on the branch that owns the plan)
-/plans/
+# NOTE: git only descends into an included directory, so the whitelist needs
+# three steps: include the dir, ignore its contents, include the file.
+!/plans/
+/plans/*
+!/plans/twod-2d-defocus-deconvolution.md
 
 # --- never track, anywhere ---
 __pycache__/

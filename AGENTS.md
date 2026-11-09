@@ -75,6 +75,11 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   band too small (2 µm fixed vs ~7 µm needed). The 99%-energy margin fix
   exists in `scripts_extras/rod_fit*` / server runs but is NOT yet in the
   package. Weekend fit logs: nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/`.
+- **`feat/twod` branch (opened 2026-11-09, DRAFT):** plan for a new optional
+  subpackage `sibilla.twod` — 2D defocus estimation + RL deconvolution for the
+  PCLS dataset (spatially varying defocus; in-focus region of the same image
+  anchors the estimator). Design sketch: `plans/twod-2d-defocus-deconvolution.md`.
+  Nothing implemented; `psf.py`/3D machinery untouched by design.
 - The fitter is single-threaded and slow on big boxes; performance options are
   documented in `plans/fit-speedups.md`.
 
