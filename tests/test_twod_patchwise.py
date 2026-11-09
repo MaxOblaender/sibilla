@@ -71,3 +71,16 @@ def test_reassembly_no_ringing_at_patch_border():
     col = out[:, 256].mean()
     neigh = np.mean([out[:, 250].mean(), out[:, 262].mean()])
     assert abs(col - neigh) / (neigh + 1e-6) < 0.15
+
+def test_rl_early_stops_on_tissue_fixture():
+    """Spec §7 early stop (round-3 pin): with the §7 metric wired into
+    deconvolve_patchwise, RL must not run all 30 iterations on the tissue
+    fixture — the band-limited spectral distance to the reference plateaus
+    (convergence) or grows (divergence), and either way the plateau
+    detector stops the run; PatchRecord.iterations reports it."""
+    obj = _tissue_tile(2)
+    blurred = np.real(sp_fft.ifft2(sp_fft.fft2(obj) * sp_fft.fft2(psf2d(10.0, "CH1", 512)))).astype(np.float32)
+    out, recs = patchwise.deconvolve_patchwise(blurred, "CH1", size=256, n_iter=30)
+    full = [r for r in recs if r.iterations > 0]
+    assert full, "expected at least one patch to run RL"
+    assert all(r.iterations < 30 for r in full)

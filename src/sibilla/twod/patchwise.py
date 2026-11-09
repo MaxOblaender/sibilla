@@ -30,6 +30,17 @@ Load-bearing rules:
   feathered reassembly — with dz estimation and RL skipped; records carry
   ``dz_um=nan``, ``iterations=0``, ``recovery=None``. The control differs
   from the full arm ONLY by the deconvolution.
+- **RL early-stops on the §7 recovery metric**: the metric handed to RL is
+  the NEGATIVE band-limited spectral distance of the running estimate to
+  the reference patch, over the dz fit band's bins (the reference's band
+  spectrum is computed once per tile), tracked best-so-far so rl2d's
+  consecutive-stall detector sees oscillating divergence too (measured
+  second divergence class; see :func:`_early_stop_metric`). Higher =
+  better: convergence shrinks the distance so the metric rises, then
+  plateaus; divergence grows the distance so the metric drops. With
+  ``tol=0.02``/``patience=5`` (the §7 values) both pathologies stop early —
+  without a metric, divergence runs all ``n_iter`` iterations and explodes
+  (measured on W042: 1e55 recovery spikes).
 
 Noise for the dz fit: ``noise_sigma`` is measured once from the
 L1-normalized tile with :func:`sibilla.twod.flatfield.estimate_empty_background`
@@ -38,14 +49,17 @@ tile") and rescaled into each matched patch's units by ``1/|g|`` (the L2
 inverse is affine, so it rescales noise exactly like signal; the ratio and
 knee tests inside :func:`sibilla.twod.dz_estimate.estimate_dz` are
 scale-invariant only if sigma is rescaled with it). On an 8-bit tile whose
-background is *exactly* flat the MAD sigma is 0; the 8-bit quantization
-noise ``ΔDN/√12 = 0.289`` DN (expressed in L1 units) then substitutes as a
-*conditional* floor — σ = 0 would make the knee test pass at every
-frequency and let RL amplify quantization noise without bound (measured on
-W042: 1e12–1e55 recovery spikes). The floor is deliberately conditional
-rather than an unconditional ``max()``: at ``0.289/scale`` it is ~100× the
-true σ of any continuous synthetic fixture and would collapse every
-recovery horizon (see the comment at the wiring site). The estimator
+background is *exactly* flat the MAD sigma is 0; a 1.0 DN noise floor
+(expressed in L1 units) then substitutes as a *conditional* floor — σ = 0
+would make the knee test pass at every frequency and let RL amplify noise
+without bound (measured on W042: 1e12–1e55 recovery spikes). The floor is
+1.0 DN — the 8-bit quantization noise ``ΔDN/√12 = 0.289`` DN plus
+realistic read noise — because quantization alone proved *functionally
+inert* here (pilot round 2: 4σ² ≈ 5e-6, near-flat patches with faint haze
+still passed the knee and RL still diverged). It remains deliberately
+conditional rather than an unconditional ``max()``: at ``1.0/scale`` it is
+hundreds× the true σ of any continuous synthetic fixture and would
+collapse every recovery horizon (see the comment at the wiring site). The estimator
 assumes the tile is *mostly empty* (true for fluorescence PCLS tiles); on
 dense textures the MAD sigma measures texture spread instead of noise,
 which pushes patches toward ``unrecoverable`` — the conservative direction.
@@ -218,6 +232,60 @@ def recovery_metric(before: np.ndarray, after: np.ndarray,
     return p_after / p_before
 
 
+def _band_distance(x: np.ndarray, bins, band: np.ndarray,
+                   ref_band: np.ndarray) -> float:
+    """NEGATIVE band-limited spectral distance to the reference (spec §7).
+
+    Metric value for :func:`_early_stop_metric`:
+    :func:`dz_estimate.radial_spectrum` of the running estimate compared to
+    the reference patch's precomputed band spectrum over the dz fit band's
+    bins. RL converging toward the reference statistics shrinks the
+    distance (value rises toward 0, then plateaus); RL diverging grows it
+    (value drops). Returns ``-inf`` for a non-finite (overflowing)
+    distance so the plateau comparison still reads "no improvement".
+    """
+    _, p = dz_estimate.radial_spectrum(x, bins)
+    d = p[band] - ref_band
+    d = d[np.isfinite(d)]
+    if d.size == 0:
+        return 0.0
+    with np.errstate(over="ignore"):
+        dist = float(d @ d)
+    return -dist if np.isfinite(dist) else float("-inf")
+
+
+def _early_stop_metric(bins, band: np.ndarray, ref_band: np.ndarray):
+    """§7 early-stop metric for ONE RL run (factory; one call per patch).
+
+    Returns ``metric(x) -> float`` for :func:`rl2d.rl2d` (higher is
+    better): the NEGATIVE band-limited spectral distance to the reference
+    patch (:func:`_band_distance`), tracked as a best-so-far ENVELOPE.
+
+    The envelope is a MEASURED deviation from handing rl2d the raw metric
+    value, flagged in the Task-9 round-3 report: RL divergence comes in two
+    classes on the tissue fixture — monotone (distance grows every
+    iteration; the raw metric stops at iteration 6) and OSCILLATING
+    (distance swings e.g. −841 → −533 → −649 → −418: every second
+    iteration "improves" by ≫ 2 % and resets rl2d's consecutive-stall
+    counter, so the raw value runs all 30 iterations on a bounded
+    oscillation). Tracking the best-so-far makes §7's "stops improving by
+    > 2 % over 5 iterations" mean "no new best for 5 iterations", which
+    stops both classes while leaving genuinely converging runs untouched —
+    the distance shrinks monotonically there, so envelope ≡ raw value
+    (measured: identical stop iteration on the convergent fixture patch).
+    """
+    best = float("-inf")
+
+    def metric(x: np.ndarray) -> float:
+        nonlocal best
+        m = _band_distance(x, bins, band, ref_band)
+        if m > best:
+            best = m
+        return best
+
+    return metric
+
+
 def _dark_level(matched: np.ndarray) -> float:
     """RL background: the patch's own dark level after L2 (spec §7).
 
@@ -269,7 +337,11 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
         (Zernikes = 0 in the pilot, i.e. ``None``).
     size, overlap : patch side length and fractional overlap (spec §7:
         512 px, 25 %). ``overlap * size`` is the feather ramp per side.
-    n_iter : maximum RL iterations per recoverable patch.
+    n_iter : maximum RL iterations per recoverable patch; the §7 early
+        stop (negative band-limited spectral distance to the reference
+        patch, ``tol=0.02``, ``patience=5``) usually ends RL sooner, and
+        :attr:`PatchRecord.iterations` reports the iterations actually
+        applied.
     run_rl : ``False`` = background-only control arm (see module docstring).
 
     Returns ``(out, records)``: the reassembled tile (float32, tile shape)
@@ -308,23 +380,26 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
     # noise floor for the dz fit, from the tile's empty background (§5.4);
     # rescaled per patch by 1/|g| into the L2-matched frame.
     #
-    # 8-bit quantization guard — MEASURED DECISION (conditional, not an
+    # Degenerate-sigma guard — MEASURED DECISION (conditional, not an
     # unconditional max()): on the synthetic fixtures the true normalized
-    # background sigma is ~0.005 while (1/sqrt(12))/scale ~ 0.53-0.60 — an
-    # unconditional max() would make the quantization floor dominate by
-    # ~108x, collapse the recovery horizon (4*sigma^2 ~ 1.3 at every
-    # frequency) and render the background-only and full arms identical
-    # (pinned arm test fails, measured). So the floor substitutes ONLY when
-    # the MAD sigma is exactly 0 — the production pathology this guards:
-    # an 8-bit tile whose background is exactly flat (every background
-    # pixel rounds to the same DN; W042 P00001/P00007: 6 DN everywhere)
-    # gives sigma = 0 -> the knee test passes everywhere -> unguarded RL
-    # amplifies quantization noise into 1e12-1e55 "recovery" spikes. There
-    # the physical noise floor is the 8-bit quantization noise,
-    # DeltaDN/sqrt(12) = 0.289 DN, expressed here in L1 units (/ scale).
+    # background sigma is ~0.005 while 1.0/scale ~ 2 — an unconditional
+    # max() would make the floor dominate by ~400x, collapse the recovery
+    # horizon (4*sigma^2 ~ 16 at every frequency) and render the
+    # background-only and full arms identical (pinned arm test fails,
+    # measured). So the floor substitutes ONLY when the MAD sigma is
+    # exactly 0 — the production pathology this guards: an 8-bit tile whose
+    # background is exactly flat (every background pixel rounds to the same
+    # DN; W042 P00001/P00007: 6 DN everywhere) gives sigma = 0 -> the knee
+    # test passes everywhere -> unguarded RL amplifies noise into
+    # 1e12-1e55 "recovery" spikes. The floor is 1.0 DN — quantization
+    # (DeltaDN/sqrt(12) = 0.289 DN) plus realistic read noise — expressed
+    # here in L1 units (/ scale). The pure-quantization value 0.289 DN was
+    # measured functionally inert in pilot round 2 (4*sigma^2 ~ 5e-6:
+    # near-flat patches with faint haze still passed the knee and RL still
+    # diverged); 1.0 DN covers both contributions conservatively.
     _, sigma_tile = flatfield.estimate_empty_background(norm)
     if sigma_tile <= 0.0:
-        sigma_tile = (1.0 / np.sqrt(12.0)) / scale
+        sigma_tile = 1.0 / scale
 
     # tiles smaller than one patch: symmetric-pad so patches stay size x size
     pad_y, pad_x = max(0, size - ny), max(0, size - nx)
@@ -350,6 +425,12 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
     # (== build_object_spectrum([ref], bins): the median of one patch)
     bins = dz_estimate.radial_bins((size, size))
     freqs, s_obj = dz_estimate.radial_spectrum(ref, bins)
+
+    # §7 early-stop metric support: the reference's band-limited radial
+    # spectrum is computed ONCE per tile (s_obj above); the low band edge
+    # (the dz fit's F_LO) is per tile too — per patch only the upper edge
+    # (the dz fit's own f_horizon) masks the band.
+    finite_band = np.isfinite(s_obj) & (freqs >= dz_estimate.F_LO)
 
     w2 = feather_weights(size, overlap).astype(np.float32)
     acc = np.zeros((ph, pw), dtype=np.float64)
@@ -393,8 +474,17 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
             continue
 
         psf = psf2d(dz.dz_um, channel, grid_size=size, coeffs=coeffs)
+        # §7 early stop ("recovery metric stops improving by >2 % over 5
+        # iterations"): metric = NEGATIVE band-limited spectral distance to
+        # the reference patch over this patch's dz fit band (its reference
+        # spectrum was computed once per tile), best-so-far-tracked so the
+        # plateau detector sees both divergence classes (see
+        # _early_stop_metric).
+        band = finite_band & (freqs <= dz.f_horizon)
         res = rl2d.rl2d(matched, psf, background=_dark_level(matched),
-                        n_iter=n_iter)
+                        n_iter=n_iter,
+                        metric=_early_stop_metric(bins, band, s_obj[band]),
+                        tol=0.02, patience=5)
         after = np.asarray(res.image, dtype=np.float32)
         records.append(PatchRecord(
             row=row, col=col, y0=y0, x0=x0, size=size,

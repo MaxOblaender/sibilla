@@ -44,9 +44,20 @@ def l1_normalize(
 
     Fluorescence (dark background): ``bg = median(tile[tile <= median(tile)])``,
     ``scale = p99.9 - bg``, return ``(tile - bg) / scale``.
-    Transmission (bright background): ``bg = p50`` (the well bottom),
-    ``scale = bg - p1``, return ``(bg - tile) / scale`` — i.e. darkness, so
-    tissue reads bright exactly as in the fluorescence channels.
+    Transmission (bright background): ``bg = p90`` — the illuminated well
+    bottom, ``scale = bg - p1``, return ``(bg - tile) / scale`` — i.e.
+    darkness, so tissue reads bright exactly as in the fluorescence channels.
+
+    Why p90 and not p50: ``p50`` assumed the well bottom occupies at least
+    half the tile. MEASURED on the W042 CH4 pilot tiles that assumption
+    fails — P00001/P00007: ``p50 = 1`` DN with ~2/3 of the tile near-black
+    (the illuminated well bottom is the bright minority, p75–p99 = 34–150
+    DN), so ``scale = p50 - p1`` collapsed to 1–4 DN and the background
+    texture mapped to σ ≈ 40–76 normalized units (every patch unrecoverable;
+    pilot round 2). ``p90`` sits inside the bright mode in both regimes —
+    measured 59–146 DN on all nine W042 CH4 tiles (vs p50 = 1–107), and
+    exactly the old value on well-bottom-dominated tiles (pinned fixture:
+    bg 240, dark square → p50 = p90 = 240).
 
     Returns ``(normalized, bg, scale)`` with the image as float32 and empty
     background at 0. Raises :class:`ValueError` for an unknown ``kind`` or
@@ -57,7 +68,7 @@ def l1_normalize(
         bg = float(np.median(tile[tile <= np.median(tile)]))
         scale = float(np.percentile(tile, 99.9)) - bg
     elif kind == "transmission":
-        bg = float(np.percentile(tile, 50))
+        bg = float(np.percentile(tile, 90))
         scale = bg - float(np.percentile(tile, 1))
     else:
         raise ValueError(f"unknown channel kind: {kind!r}")

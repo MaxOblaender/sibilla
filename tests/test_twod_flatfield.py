@@ -25,6 +25,25 @@ def test_l1_zero_scale_raises():
     with pytest.raises(ValueError):
         flatfield.l1_normalize(np.zeros((32, 32), np.uint8), "fluorescence")
 
+def test_l1_transmission_no_well_bottom_sane_scale():
+    """Round-3 pin (measured W042 CH4 P00001/P00007): a no-well-bottom
+    tile — mostly near-black, illuminated well bottom only in a small
+    bright minority — must get a sane scale (comparable to the tile's
+    dynamic range) and O(1) structure contrast, not the old ``bg = p50``
+    convention's collapsed scale (1–4 DN) with ×40–76 noise
+    amplification."""
+    rng = np.random.default_rng(5)
+    tile = rng.integers(0, 3, size=(256, 256)).astype(np.uint8)  # p50 = 1 DN class
+    yy, xx = np.mgrid[0:256, 0:256]
+    well = np.hypot(yy - 128, xx - 128) < 70        # bright minority (~24 %)
+    tile[well] = rng.integers(90, 130, size=int(well.sum())).astype(np.uint8)
+    out, bg, scale = flatfield.l1_normalize(tile, "transmission")
+    assert scale > 40                        # sane: ~ dynamic range, not 1–4 DN
+    assert bg == pytest.approx(np.percentile(tile, 90))
+    assert np.abs(out[well]).max() < 2.0     # old p50 convention: |out| ~ 90–130 here
+    assert 0.5 < out[~well].mean() <= 1.5    # dark structure reads bright, O(1)
+    assert out[~well].std() < 0.5            # noise stays well below contrast
+
 def test_l2_recovers_known_gain_and_offset():
     ref = _texture(1).astype(np.float32) / 255.0
     target = (0.6 * ref + 0.2).astype(np.float32)
