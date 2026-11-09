@@ -14,7 +14,9 @@ This module implements the first two, strictly separated levels:
   between the two patches (spec §5.3).
 
 :func:`estimate_empty_background` provides the robust dark level and noise
-sigma of a mostly-empty tile (noise floor for the dz fit, spec §5.3).
+sigma of a mostly-empty tile (noise floor for the dz fit, spec §5.3), both
+measured on the dimmest quartile, with an optional caller-supplied sigma
+floor (8-bit quantization noise).
 """
 
 from __future__ import annotations
@@ -24,7 +26,14 @@ import numpy as np
 __all__ = ["l1_normalize", "l2_match", "estimate_empty_background"]
 
 _L2_DEFAULT_F_MAX = 0.15
-_MAD_TO_SIGMA = 1.4826  # 1/Phi^-1(0.75): median absolute deviation -> sigma
+# MAD -> sigma for the *bottom-quartile* (truncated Gaussian) sample that
+# estimate_empty_background measures: MAD of a unit normal restricted to its
+# lowest 25 % is 0.3026 (Monte Carlo, 4e6 draws), so sigma = MAD / 0.3026.
+# (The familiar 1.4826 is the FULL-Gaussian factor; applied to the quartile
+# it understates sigma by 2.3x — measured: the spots fixture's 6-sigma
+# detection threshold collapsed to 2.6 sigma true, 3600 noise pixels seeded,
+# pinned spot detection died by region merging.)
+_QUARTILE_MAD_TO_SIGMA = 3.3043
 _G_MIN = 0.1  # fits with |g| below this are degenerate: never apply the inverse
 
 
@@ -117,18 +126,37 @@ def l2_match(
     return matched, g, c
 
 
-def estimate_empty_background(tile: np.ndarray) -> tuple[float, float]:
+def estimate_empty_background(
+    tile: np.ndarray, *, sigma_floor: float | None = None
+) -> tuple[float, float]:
     """Estimate the background level and noise sigma of a mostly-empty tile.
 
-    ``med`` is the tile median; ``sig`` is the MAD-based sigma
-    (``1.4826 · median(|tile - med|)``) restricted to the lowest 50 %
-    intensities, so small bright objects cannot inflate the noise estimate.
+    Both statistics are measured on the **lowest-25 % intensity subset** — the
+    dimmest quartile is the empty-background population:
 
-    Returns ``(med, sig)`` as plain floats. ``sig`` is 0 for a perfectly
-    flat background (no noise in the data itself).
+    - ``med`` is that subset's own median: the **background level**. It is
+      *not* the full-tile median: on a tile whose overall median sits far
+      above the dark level (a bright or hazy lower half), centring on the
+      full-tile median folds the object/background offset into ``sig``
+      (measured on W042: 30–172 DN-equivalent vs a true 1.5–4.5 DN).
+    - ``sig`` is the MAD-based noise sigma of that subset around ``med``
+      (MAD recalibrated for the truncated quartile: ``MAD / 0.3026``, see
+      ``_QUARTILE_MAD_TO_SIGMA``): the **robust noise std** of the
+      empty background; bright objects cannot inflate it.
+
+    ``sigma_floor`` (keyword-only, ``None`` = no floor): when given,
+    ``sig = max(sig, sigma_floor)``. Callers that know the quantization /
+    detector noise floor (e.g. ``ΔDN / sqrt(12) / scale``) use it to keep
+    ``sig`` from collapsing to its degenerate MAD == 0 value on a perfectly
+    flat 8-bit background.
+
+    Returns ``(med, sig)`` as plain floats. Without a floor, ``sig`` is 0 for
+    a perfectly flat background (no noise in the data itself).
     """
     tile = np.asarray(tile, dtype=np.float64)
-    med = float(np.median(tile))
-    low = tile[tile <= np.percentile(tile, 50)]
-    sig = float(_MAD_TO_SIGMA * np.median(np.abs(low - med)))
+    low = tile[tile <= np.percentile(tile, 25)]
+    med = float(np.median(low))
+    sig = float(_QUARTILE_MAD_TO_SIGMA * np.median(np.abs(low - med)))
+    if sigma_floor is not None:
+        sig = max(sig, float(sigma_floor))
     return med, sig

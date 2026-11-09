@@ -37,10 +37,18 @@ L1-normalized tile with :func:`sibilla.twod.flatfield.estimate_empty_background`
 tile") and rescaled into each matched patch's units by ``1/|g|`` (the L2
 inverse is affine, so it rescales noise exactly like signal; the ratio and
 knee tests inside :func:`sibilla.twod.dz_estimate.estimate_dz` are
-scale-invariant only if sigma is rescaled with it). The estimator assumes
-the tile is *mostly empty* (true for fluorescence PCLS tiles); on dense
-textures the MAD sigma measures texture spread instead of noise, which
-pushes patches toward ``unrecoverable`` — the conservative direction.
+scale-invariant only if sigma is rescaled with it). On an 8-bit tile whose
+background is *exactly* flat the MAD sigma is 0; the 8-bit quantization
+noise ``ΔDN/√12 = 0.289`` DN (expressed in L1 units) then substitutes as a
+*conditional* floor — σ = 0 would make the knee test pass at every
+frequency and let RL amplify quantization noise without bound (measured on
+W042: 1e12–1e55 recovery spikes). The floor is deliberately conditional
+rather than an unconditional ``max()``: at ``0.289/scale`` it is ~100× the
+true σ of any continuous synthetic fixture and would collapse every
+recovery horizon (see the comment at the wiring site). The estimator
+assumes the tile is *mostly empty* (true for fluorescence PCLS tiles); on
+dense textures the MAD sigma measures texture spread instead of noise,
+which pushes patches toward ``unrecoverable`` — the conservative direction.
 
 Centring (Task 5 contract): :func:`sibilla.twod.psf2d.psf2d` returns the
 kernel with its peak at ``[G//2, G//2]`` and :func:`sibilla.twod.rl2d.rl2d`
@@ -295,11 +303,28 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
     ny, nx = raw.shape
 
     # --- L1 once for the whole tile: background -> 0, comparable contrast ---
-    norm, _bg, _scale = flatfield.l1_normalize(raw, kind)
+    norm, _bg, scale = flatfield.l1_normalize(raw, kind)
 
     # noise floor for the dz fit, from the tile's empty background (§5.4);
-    # rescaled per patch by 1/|g| into the L2-matched frame
+    # rescaled per patch by 1/|g| into the L2-matched frame.
+    #
+    # 8-bit quantization guard — MEASURED DECISION (conditional, not an
+    # unconditional max()): on the synthetic fixtures the true normalized
+    # background sigma is ~0.005 while (1/sqrt(12))/scale ~ 0.53-0.60 — an
+    # unconditional max() would make the quantization floor dominate by
+    # ~108x, collapse the recovery horizon (4*sigma^2 ~ 1.3 at every
+    # frequency) and render the background-only and full arms identical
+    # (pinned arm test fails, measured). So the floor substitutes ONLY when
+    # the MAD sigma is exactly 0 — the production pathology this guards:
+    # an 8-bit tile whose background is exactly flat (every background
+    # pixel rounds to the same DN; W042 P00001/P00007: 6 DN everywhere)
+    # gives sigma = 0 -> the knee test passes everywhere -> unguarded RL
+    # amplifies quantization noise into 1e12-1e55 "recovery" spikes. There
+    # the physical noise floor is the 8-bit quantization noise,
+    # DeltaDN/sqrt(12) = 0.289 DN, expressed here in L1 units (/ scale).
     _, sigma_tile = flatfield.estimate_empty_background(norm)
+    if sigma_tile <= 0.0:
+        sigma_tile = (1.0 / np.sqrt(12.0)) / scale
 
     # tiles smaller than one patch: symmetric-pad so patches stay size x size
     pad_y, pad_x = max(0, size - ny), max(0, size - nx)

@@ -54,3 +54,11 @@ def test_estimate_empty_background():
     med, sig = flatfield.estimate_empty_background(tile)
     assert med == pytest.approx(12.0, abs=1.0)
     assert 0.0 < sig < 3.0
+
+def test_estimate_empty_background_sigma_floor():
+    tile = np.full((64, 64), 6.0, np.float32)
+    med, sig = flatfield.estimate_empty_background(tile)
+    assert sig == 0.0                       # degenerate without a floor
+    med2, sig2 = flatfield.estimate_empty_background(tile, sigma_floor=0.29)
+    assert sig2 == 0.29                     # floor substitutes for MAD == 0
+    assert med2 == pytest.approx(6.0, abs=1.0)
