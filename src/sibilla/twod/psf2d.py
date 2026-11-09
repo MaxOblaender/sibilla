@@ -4,7 +4,9 @@ The 2D defocus pipeline does not model the PSF itself; it consumes the
 pinned scalar widefield model (:func:`sibilla.psf.build_psf_stack`) one
 plane at a time, so every convention (exact geometric defocus OPD,
 energy normalization, shared pixel grid) is inherited unchanged and
-validated here against analytic Airy geometry.
+validated here against analytic Airy geometry. All µm labels depend on
+assumption A1 — ``N_IM = 1.33``, an aqueous sample under an air
+objective (see ``sibilla.twod.optics``).
 """
 
 from __future__ import annotations

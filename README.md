@@ -59,6 +59,48 @@ Auto-selects crops, runs the ensemble fit, and deconvolves.
 `calibrate_single.py`, `crop_sanity.py`, `select_batch_crops_v2.py`,
 `export_psf_for_dolphin.py`, `manual_crop.py` — helpers for the real-data workflow.
 
+## 2D defocus pipeline (`sibilla.twod`)
+
+Optional subpackage for the widefield PCLS dataset: a tile has *spatially
+varying* defocus, so it is cut into overlapping patches, each patch gets its
+own defocus estimate (anchored on an in-focus reference from the same well)
+and its own 2D Richardson–Lucy deconvolution, and the patches are
+reassembled with a feathered blend. `psf.py` and the 3D machinery are
+untouched.
+
+| Module | Role |
+|---|---|
+| `optics` | Keyence channel constants (pixel size, NA, λ; assumption A1: `N_IM = 1.33`) |
+| `psf2d` | energy-normalized 2D PSF per defocus plane (reuses the scalar widefield model) |
+| `flatfield` | per-tile L1 normalization + cross-patch L2 gain/offset matching |
+| `dz_estimate` | in-focus-anchored spectral defocus fit with recovery-horizon QC flags |
+| `rl2d` | damped 2D Richardson–Lucy (constant background, never subtracted) |
+| `patchwise` | patch grid, per-patch pipeline, feathered reassembly, per-patch QC records |
+| `mosaic` | ashlar tile stitching + labeled QC panels |
+| `spots` | phase-2 conidia spot detector (spec §8) — present but gated, not used by the pilot |
+
+Usage sketch:
+
+```python
+from sibilla.twod.optics import pupil_config
+from sibilla.twod.psf2d import psf2d
+from sibilla.twod import patchwise, mosaic
+
+pupil_config("CH1")                                            # channel optics (A1: n_im = 1.33)
+psf = psf2d(15.0, "CH1", grid_size=256)                        # per-defocus-plane PSF
+out, records = patchwise.deconvolve_patchwise(tile, "CH1", ref_patch=ref)
+mosaic.panels_side_by_side([raw, out], out_png)                # shared-stretch QC figure
+```
+
+Pilot status (2026-11-09): on pilot well W042 the monotonicity gate found 0/9
+informative tiles — the spectral dz estimator is method-limited at this noise
+floor (see AGENTS.md Known state); the machinery (PSF, RL, patchwise, mosaic,
+spots) is validated and reusable.
+
+Caveat (A1): all µm labels assume `N_IM = 1.33` — an aqueous sample under an
+air objective (the sample, not the objective, is the refractive medium); see
+`sibilla.twod.optics`.
+
 ## Tests
 
 ```bash

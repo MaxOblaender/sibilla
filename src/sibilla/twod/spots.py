@@ -9,7 +9,7 @@ the sanity visuals below have been inspected.
 Detection (:func:`detect`):
 
 1. **Background / noise** from :func:`sibilla.twod.flatfield.estimate_empty_background`
-   (robust MAD over the lowest-50 % subset, so spots cannot inflate sigma).
+   (robust MAD over the lowest-25 % subset, so spots cannot inflate sigma).
 2. **Seeds** — local maxima of ``img`` (3×3 neighbourhood) strictly above
    ``bg + thresholds · sigma_bg``. Seeds are labelled with 8-connectivity so a
    plateau (several equal-valued pixels) yields ONE candidate rather than a

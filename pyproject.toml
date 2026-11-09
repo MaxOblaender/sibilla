@@ -14,6 +14,7 @@ dependencies = [
     "scipy>=1.10",
     "tifffile>=2023.1.23",
     "matplotlib>=3.7",
+    "pillow>=10.1",  # imported directly by twod.mosaic; ImageFont.load_default(size=16) needs >= 10.1
 ]
 
 [project.optional-dependencies]

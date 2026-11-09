@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-from sibilla.twod import optics
 from sibilla.twod.psf2d import airy_first_zero_um, psf2d
 
 CH = "CH1"

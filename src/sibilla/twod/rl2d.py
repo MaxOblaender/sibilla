@@ -22,9 +22,11 @@ Convolutions are circular FFTs (:func:`fft_convolve2`), so the PSF must
 have the same shape as the image with its peak at the array centre —
 exactly the layout :func:`sibilla.twod.psf2d.psf2d` returns. The
 back-projection uses the conjugate-FFT kernel — the exact adjoint of the
-circular blur operator (for a centrosymmetric kernel this equals the
-flipped PSF; the Airy rings of a real :func:`psf2d` output are not
-centrosymmetric, so the conjugate form is required).
+circular blur operator. The tempting flip ``p[::-1, ::-1]`` is not the
+adjoint: for the even-size, centre-rolled kernels :func:`psf2d` returns,
+the flip differs from the true adjoint by a 1-px roll for ANY centred
+kernel (adjoint dot-product test: flip 16421.4 vs conjugate 16419.9), so
+the conjugate form is required.
 """
 
 from __future__ import annotations

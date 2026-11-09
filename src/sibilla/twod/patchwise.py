@@ -51,6 +51,9 @@ Load-bearing rules:
   without a metric, divergence runs all ``n_iter`` iterations and explodes
   (measured on W042: 1e55 recovery spikes).
 
+``DzResult.haze_dominated`` is reported but not gated: pilot policy is to
+record it in run_meta, not act on it.
+
 Noise for the dz fit: ``noise_sigma`` is measured once from the
 L1-normalized tile with :func:`sibilla.twod.flatfield.estimate_empty_background`
 (spec §5.4: "noise estimated from empty background regions of the same
@@ -96,7 +99,6 @@ __all__ = [
     "patch_grid",
     "feather_weights",
     "recovery_metric",
-    "sharpness",
     "deconvolve_patchwise",
 ]
 
@@ -145,11 +147,6 @@ class PatchRecord:
     recovery: float | None
     unrecoverable: bool
     indeterminate: bool = False
-
-
-def sharpness(img: np.ndarray) -> float:
-    """Sharpness score (re-exported from :func:`dz_estimate.sharpness`)."""
-    return dz_estimate.sharpness(img)
 
 
 def _starts(n: int, size: int, step: int) -> list[int]:
@@ -238,9 +235,13 @@ def recovery_metric(before: np.ndarray, after: np.ndarray,
     Both arrays are radially binned (:func:`dz_estimate.radial_bins`) and
     the summed per-mode power over ``[f_lo, f_hi]`` cyc/px is compared:
     ~1.0 means the band is unchanged, > 1 that energy was restored in it
-    (deblurring a defocused patch raises high-frequency power). Returns
-    ``nan`` when the band is empty or the "before" power is ~0 (ratio
-    undefined — a flat patch has no band power to recover).
+    (deblurring a defocused patch raises high-frequency power). This
+    implements the plain after/before ratio of spec §9; the spec's
+    normalization by the in-focus reference's band energy and the
+    ``f_hi = min(f_horizon, f_max)`` band cap are deliberately not
+    implemented (plan-sanctioned simplification). Returns ``nan`` when the
+    band is empty or the "before" power is ~0 (ratio undefined — a flat
+    patch has no band power to recover).
     """
     p_before = _band_power(before, f_lo, f_hi)
     p_after = _band_power(after, f_lo, f_hi)
@@ -487,9 +488,9 @@ def deconvolve_patchwise(tile: np.ndarray, channel: str,
             wsum[y0:y0 + size, x0:x0 + size] += w2
             continue
 
-        # l2_match passes degenerate fits (|g| < _G_MIN) through uncorrected;
+        # l2_match passes degenerate fits (|g| < GAIN_FLOOR) through uncorrected;
         # the patch then keeps its own frame, so no 1/|g| noise rescale.
-        sigma = sigma_tile / abs(g) if abs(g) >= flatfield._G_MIN else sigma_tile
+        sigma = sigma_tile / abs(g) if abs(g) >= flatfield.GAIN_FLOOR else sigma_tile
         dz = dz_estimate.estimate_dz(matched, ref, s_obj, freqs, channel, sigma,
                                      min_dz_identification=min_dz_identification)
 

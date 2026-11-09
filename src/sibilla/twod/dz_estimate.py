@@ -29,6 +29,10 @@ Spectrum normalization: :func:`radial_spectrum` returns per-mode power
 (normalized by the pixel count), so *white Gaussian noise of std ``σ``
 contributes exactly ``σ²`` per mode* — this is the normalization in which
 the ``noise_sigma²`` comparisons of the knee/horizon logic live.
+
+All µm labels (``dz_um``, ``dz_err_um``) depend on assumption A1 of the
+pupil model — ``N_IM = 1.33``, an aqueous sample under an air objective
+(see ``sibilla.twod.optics``).
 """
 
 from __future__ import annotations

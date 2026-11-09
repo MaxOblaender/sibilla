@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["l1_normalize", "l2_match", "estimate_empty_background"]
+__all__ = ["l1_normalize", "l2_match", "estimate_empty_background", "GAIN_FLOOR"]
 
 _L2_DEFAULT_F_MAX = 0.15
 # MAD -> sigma for the *bottom-quartile* (truncated Gaussian) sample that
@@ -34,7 +34,7 @@ _L2_DEFAULT_F_MAX = 0.15
 # detection threshold collapsed to 2.6 sigma true, 3600 noise pixels seeded,
 # pinned spot detection died by region merging.)
 _QUARTILE_MAD_TO_SIGMA = 3.3043
-_G_MIN = 0.1  # fits with |g| below this are degenerate: never apply the inverse
+GAIN_FLOOR = 0.1  # fits with |g| below this are degenerate: never apply the inverse
 
 
 def l1_normalize(
@@ -90,7 +90,9 @@ def l2_match(
     """Match ``target`` to ``ref`` with a low-frequency gain/offset fit (L2).
 
     A low-pass mask (rfft2 radius <= ``f_max`` cycles/px, default 0.15)
-    selects the frequencies below the noise knee; on the masked inverse FFTs
+    selects the frequencies below the noise knee; ``f_max`` >= Nyquist
+    (0.5 cyc/px) degenerates to a full-band fit — no knee left to respect.
+    On the masked inverse FFTs
     of both patches the model ``target ≈ g·ref + c`` is solved by least
     squares (``np.linalg.lstsq`` on ``[masked_ifft(ref), ones]``). The
     *inverse* mapping is then applied to the target (spec §5.3: "apply the
@@ -99,7 +101,7 @@ def l2_match(
     spectral shape differences remain.
 
     Returns ``(matched, g, c)``. The correction is applied only when the fit
-    is non-degenerate: if the fitted gain is non-finite or ``|g| < _G_MIN``
+    is non-degenerate: if the fitted gain is non-finite or ``|g| < GAIN_FLOOR``
     (e.g. an empty patch vs a textured reference), the inverse
     ``(target - c)/g`` would explode the patch by ``1/|g|``, so ``matched``
     is an uncorrected copy of ``target`` while ``g``/``c`` still report the
@@ -128,7 +130,7 @@ def l2_match(
             "l2_match: degenerate low-frequency fit; the reference patch "
             "has no usable structure to match against"
         )
-    if not np.isfinite(g) or abs(g) < _G_MIN:
+    if not np.isfinite(g) or abs(g) < GAIN_FLOOR:
         # Degenerate gain (e.g. empty patch vs textured reference): the
         # inverse (target - c)/g would explode the patch by 1/|g|. Pass the
         # target through UNCORRECTED; g/c still report the fitted values.
