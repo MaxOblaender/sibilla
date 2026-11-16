@@ -85,10 +85,7 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   feathered reassembly), `mosaic` (ashlar stitching + QC panels), `spots`
   (phase-2 conidia detector — present but gated, not used by the pilot).
   Tests: `tests/test_twod_*.py`. Pilot outcome (W042, 9 tiles, CH1+CH4):
-  ran end-to-end; the monotonicity gate found n_informative 0/9 tiles —
-  the estimator is method-limited per the realism probe (even a noiseless
-  continuous control fails through the production path); machinery
-  validated, the finding awaits the maintainer's decision. Caveat A1: µm
+   ran end-to-end; the monotonicity gate found n_informative 0/9 tiles. Root cause (corrected 2026-11-10): the per-patch single-defocus MODEL does not hold for this sample — the tissue is a ~100 µm 3D slice, so a patch is a depth integral of object(z') ⊛ PSF(dz−z'), not one defocused object, and its spectrum differs from the in-focus reference (non-stationarity); the noise floor makes the failure loud, not the cause. Spectral per-patch dz estimation is not applicable here; the well-posed defocus route is point-like objects (conidia, the phase-2 spots route). Machinery (PSF, RL, patchwise, mosaic, spots) validated, the finding awaits the maintainer's decision. Caveat A1: µm
   labels assume `N_IM = 1.33` (aqueous sample under air objective, see
   `sibilla.twod.optics`).
 - The fitter is single-threaded and slow on big boxes; performance options are

@@ -92,10 +92,15 @@ out, records = patchwise.deconvolve_patchwise(tile, "CH1", ref_patch=ref)
 mosaic.panels_side_by_side([raw, out], out_png)                # shared-stretch QC figure
 ```
 
-Pilot status (2026-11-09): on pilot well W042 the monotonicity gate found 0/9
-informative tiles — the spectral dz estimator is method-limited at this noise
-floor (see AGENTS.md Known state); the machinery (PSF, RL, patchwise, mosaic,
-spots) is validated and reusable.
+Pilot status (2026-11-09, root cause corrected 2026-11-10): on pilot well W042
+the monotonicity gate found 0/9 informative tiles. The per-patch single-defocus
+model does not hold for this sample — it is a ~100 µm 3D tissue slice, so a
+patch is a depth integral of defocused layers, not one defocused object, and
+its spectrum differs from the in-focus reference (the noise floor makes the
+failure loud, not the cause). Spectral per-patch dz estimation is not
+applicable here; the well-posed route is point-like objects (conidia, the
+`spots` module). The machinery (PSF, RL, patchwise, mosaic, spots) is validated
+and reusable.
 
 Caveat (A1): all µm labels assume `N_IM = 1.33` — an aqueous sample under an
 air objective (the sample, not the objective, is the refractive medium); see
