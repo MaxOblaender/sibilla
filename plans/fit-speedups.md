@@ -81,14 +81,20 @@ masks around each rod) — everything else is computed and thrown away. Convolve
 each rod on its own `(rod support) ⊕ (PSF support)` sub-box and place the ROI
 columns back. Cost becomes ∝ Σ rod-support volume instead of nseg × box volume.
 
-- **XY cropping is exact** (same arithmetic, no boundary).
+- **XY cropping is exact** (same arithmetic, no boundary) — with two measured
+  corrections, see §4: the sub-box half-width is `2·r_obj + r_roi + guard`
+  (NOT `rod ⊕ PSF support`; the kernel is *cyclic-cropped*, never truncated),
+  and the PSF array must be **cyclic-cropped from the full-box build**, not
+  rebuilt at sub-grid size (the PSF build is grid-size dependent).
 - **Z cropping needs the 99%-energy guard band** (the margin rule from
   `plans/manual-structure-selection.md` §2.4) because the convolution is
   *cyclic* in z: a rod's tail at the box edge wraps around and lands on the
   opposite plane. The 2 µm fixed margin used in the weekend runs is the
   suspected cause of the region3 bound-pinning (box 18 µm tall needs ~7 µm).
 - **Risk: low** — identical math; gate with an equivalence test
-  (support-cropped column vs full-box column, `allclose` 1e-12).
+  (support-cropped column vs full-box column at the rod's OWN ROI pixels,
+  measured 1e-15 achievable, §4). Cross-rod far-tail entries need a model
+  decision (§4.4) — cluster-grouped sub-boxes keep them exactly.
 - **Does NOT change statistics** — unmarked neighbour bacteria still bias the
   fit; this is a speed fix, not a correctness fix.
 
@@ -202,3 +208,105 @@ decided only once a 9-rod fit comes off the bound
   equivalence test in the suite.
 - None of this changes the *statistics* of the fit (orientation coverage,
   isolation, guard band) — those live in `plans/manual-structure-selection.md`.
+
+## 4. O1 implementation contract (measured 2026-11-16, `per_rod_probe.py`)
+
+Prototype probe on synthetic confocal clusters (commit 74693c1, pixel
+0.1135 µm/px, confocal model, 7 z-candidates). Numbers below are measured,
+not assumed.
+
+### 4.1 Crop-size rule (near field — exact)
+
+- Sub-box half-width **`half ≥ 2·r_obj_half + r_roi + guard`**, with
+  `r_obj_half` the rod's actual half-extent from the rendered object bounding
+  box (≈ 25 px for a 45 px rod), `r_roi` = 1.5 µm ≈ 14 px, `guard` = 4 px.
+  The object support appears on BOTH sides of every displacement
+  `x − u` read at the ROI pixels — hence `2·r_obj`, not `r_obj`.
+  Measured: **machine-exact (rel ≤ 1.2e-15) at half = 68 px** on a 512² box,
+  for all rods including a deliberately close 15 px pair with overlapping
+  ROIs. The earlier `rod ⊕ PSF support` (≈ 169 px) was derived wrongly and
+  is 5× larger than needed.
+- **Why not r_psf:** the kernel is never truncated. The full-box PSF array is
+  *cyclic-cropped* to `±half` (rows/cols `[0..half] ∪ [G−half..G−1]`), which
+  preserves the exact kernel values at every displacement the ROI pixels can
+  read. The PSF's 99.9 %-energy radius measured 129 px (14.6 µm, at ±6 µm
+  volume defocus — the outer planes of the PSF volume are very broad), but
+  that radius bounds only a possible future Z-crop, not the XY sub-box.
+- **Do NOT rebuild the PSF at sub-grid size.** The PSF build is grid-size
+  dependent (pupil grid inscribed per `grid_size`): measured relative plateau
+  ~1e-3 vs the full-box kernel, at every radius. Cyclic-cropping the full-box
+  PSF is bit-identical and cheap (one gather per eval).
+- **Z axis: keep the full box height initially** (43 planes on region5-like
+  geometry is a small factor; the Z-crop and its guard band are a separate,
+  later, separately-gated change).
+- Sub-boxes must be **square** (pupil-grid convention), re-padded if clamped
+  at the box edge.
+
+### 4.2 Close rods produce identical results
+
+Rod pairs 15–18 px apart with **overlapping ROIs** were tested explicitly:
+their near-field columns match the full-box path to ≤ 1.2e-15. Closeness does
+not break per-rod cropping — the NNLS re-couples rods through the shared ROI
+pixels after the columns are gathered, exactly as before. Overlapping
+sub-boxes are harmless (duplicate work only, never an error).
+
+### 4.3 The far-field tail is the one real model decision
+
+A rod's blurred column is NOT zero at the *other* rods' ROI pixels: the
+defocused halo contributes up to **3.3e-3 of the column scale** at 100–200 px
+separations (measured). The current full-box code includes these entries;
+a naive per-rod sub-box zeroes them. Two admissible policies:
+
+- **(a) Cluster-grouped sub-boxes (recommended default, exact):** group rods
+  whose `(ROI ⊕ r_obj)` regions come within kernel reach; each group is
+  convolved on ONE sub-box spanning the group's whole ROI union ⊕ r_obj.
+  Within the group everything is exact, machine-precision — measured.
+  A tight cluster (region3-like) then has one box ≈ its union bbox (small win
+  over today, but drops the fixed 18 px margin and square-pad waste); a
+  spread pair (region5-like, 800 px apart) becomes two independent boxes
+  (large win).
+- **(b) Cross-group truncation (opt-in flag, model change):** zero the far
+  tail. Effect at other rods' ROI pixels ≤ 3.3e-3 of column scale — admissible
+  ONLY after the §3 statistical gate (max |ΔZ| < 0.01 waves, identical
+  bound-pinning flags) on ≥ 10 synthetic + 3 real clusters. Note: for rods
+  separated by more than half the box, the current full-box "tail" is itself
+  a cyclic-wrap artifact, so truncation there arguably fixes the model — but
+  it is still gated, never silent.
+
+### 4.4 Measured speedup (region5-like geometry)
+
+43×551×551 box, 2 rods 800 px apart, 7 z-candidates, z kept full:
+full-box bank **16.7 s** → sub-box bank **1.81 s** = **9×** on the dominant
+cost, near-field exact to 1.1e-15. The PSF-volume build (1.9 s) is unchanged.
+Combined with O2 (kills the ×7 candidate factor on the object FFT) and O3
+(cores), the cumulative O1–O4 estimate stands; the Amdahl limit shifts to
+NNLS + outer loop, which is what O3's parallel axes and O5 (if ever) address.
+
+## 5. Solver policy — CPU and GPU run the SAME solver
+
+**Lawson–Hanson (`scipy.optimize.nnls`) is the solver on both paths.** The
+GPU accelerates the batched FFTs / PSF build / matrix assembly only; the
+assembled matrix is transferred to the host once per eval and the NNLS +
+outer `least_squares` run on CPU.
+
+- **Why:** Lawson–Hanson is an exact, sequential active-set method — it does
+  not vectorize to a GPU, and replacing it with an iterative solver
+  (projected gradient / FISTA) changes returned solutions within solver
+  tolerance, which feeds the outer non-convex loop (the region3 lesson).
+  At `nseg + nz ≈ 43` columns the NNLS is ~7 % of eval cost (measured
+  2026-10-30) — there is nothing meaningful to win.
+- **Transfer cost is negligible:** region3-size A is ~250 MB float64 per eval
+  → ~25 ms at 10 GB/s, against seconds of FFT time saved.
+- **Numerics:** with the same solver, GPU vs CPU results differ only at FFT
+  roundoff (~1e-15, different transform sizes/libraries). The §3 gate still
+  applies (max |ΔZ| < 0.01 waves + identical pinning decisions), but no
+  solver-tolerance term is introduced.
+- **An iterative GPU NNLS is out of scope** unless post-O1–O3 profiling shows
+  NNLS dominating. If it is ever added: separate opt-in flag, warm start from
+  the previous eval's solution, strict §3 gate, and it must never be the
+  default.
+- **Device policy:** `--device auto|cpu|gpu`, default `auto`. `auto` = CuPy
+  importable AND a CUDA device present AND the estimated footprint
+  (batches × nz × sub² × 16 B × safety 3) fits in free VRAM; otherwise fall
+  back to CPU **with a loud log line**, never silently. Result JSONs record
+  device, solver, batch size, and the commit hash.
