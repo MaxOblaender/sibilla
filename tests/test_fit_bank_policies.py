@@ -160,6 +160,76 @@ class TestPhaseRampZCandidates:
         assert sig.parameters["z_phase_ramp"].default is False
 
 
+class TestBankParallelism:
+    """O3 (plans/fit-speedups.md): the per-cluster (rod x candidate) convs
+    are independent and write disjoint bank slots -> thread-parallel
+    execution must be BIT-IDENTICAL to the serial one (pocketfft releases
+    the GIL; no cross-task reduction exists). Flag: n_bank_workers,
+    default 1 (serial) until the gate passes; 0 = os.cpu_count() (capped).
+    """
+
+    def test_workers_bitwise_identical(self):
+        fov, nz = 128, 15
+        psf = psf3d_cyclic(_config(fov), COEFFS, nz, 0.5, model="confocal")
+        objs, idx, idx_per_rod = _scene(fov)
+        ref = blurred_bank_columns(objs, psf, ZCAND_INT, idx, idx_per_rod,
+                                   policy="cluster", n_workers=1)
+        for workers in (2, 4, 8):
+            got = blurred_bank_columns(objs, psf, ZCAND_INT, idx, idx_per_rod,
+                                       policy="cluster", n_workers=workers)
+            for s in range(len(objs)):
+                for i in range(len(ZCAND_INT)):
+                    assert np.array_equal(ref[s][i], got[s][i]), (workers, s, i)
+
+    def test_workers_full_box_policy_unaffected(self):
+        """full_box is the legacy anchor: the worker flag must not change it
+        (still bitwise the same as n_workers default)."""
+        fov, nz = 128, 15
+        psf = psf3d_cyclic(_config(fov), COEFFS, nz, 0.5, model="confocal")
+        objs, idx, _ = _scene(fov)
+        ref = blurred_bank_columns(objs, psf, ZCAND_INT, idx,
+                                   policy="full_box")
+        got = blurred_bank_columns(objs, psf, ZCAND_INT, idx,
+                                   policy="full_box", n_workers=8)
+        for s in range(len(objs)):
+            for i in range(len(ZCAND_INT)):
+                assert np.array_equal(ref[s][i], got[s][i])
+
+
+    def test_fit3d_workers_bitwise_deterministic(self):
+        """O3 determinism gate at fit level: same data, n_workers=1 vs 8,
+        identical coeffs AND z decisions (no cross-task reduction exists,
+        so this must be exact, not approximate)."""
+        fov, nz = 96, 15
+        cfg = _config(fov)
+        psf = psf3d_cyclic(cfg, COEFFS, nz, 0.5, model="confocal")
+        spec = _spec(fov)
+        skel = np.array([[44, 48, 7, 60, 52, 7],
+                         [32, 60, 7, 46, 66, 7]], dtype=float)
+        objs = [render_capsule_unit(*s, spec) for s in skel]
+        rng = np.random.default_rng(7)
+        data = np.full((nz, fov, fov), 250.0)
+        for obj in objs:
+            data += 4500.0 * cyclic3d(obj, psf) / obj.max()
+        data = rng.poisson(data).astype(np.float64)
+        z_planes = (np.arange(nz) - (nz - 1) / 2) * 0.5
+
+        results = {}
+        for w in (1, 8):
+            fit_in = FitInput3D(
+                data=data, config=cfg, skeleton=skel, z_planes_um=z_planes,
+                nominal_budget=4500.0, fluorescent_diameter_um=0.65,
+                z_candidate_um=Z_CANDIDATE_GRID_UM, psf_model="confocal",
+                n_multi_start=1, max_nfev=30, n_outer_sweeps=2,
+                bank_policy="cluster", n_workers=w,
+            )
+            results[w] = fit_3d(fit_in)
+        a, b = results[1], results[8]
+        for mode in (5, 6, 7, 8):
+            assert a.coeffs[mode] == b.coeffs[mode], mode
+        assert np.array_equal(a.segment_z_um, b.segment_z_um)
+
+
 class TestFit3DBankPolicy:
     def test_cluster_policy_agrees_with_full_box(self):
         """End-to-end: same data, both policies, rods within one cluster ->

@@ -8,6 +8,9 @@ sub-box runs, 3 fallbacks, 1 corner-clamped sub-box; max |ΔZ| ≤ 4.6e-10).
 Legacy path stays available via `bank_policy="full_box"` (bit-identical).
 **O2 implemented** behind `FitInput3D.z_phase_ramp` (default False — bank
 win measured ≤1.3× on real regions, not the default; see §O2).
+**O3 implemented** behind `FitInput3D.n_workers` (default 1 = serial;
+0 = auto — bitwise-deterministic, 6–7.5× on the real-region banks;
+end-to-end fit A/B pending before any default flip; see §O3).
 O2–O5 not implemented. Measured numbers: 2026-10-30 (real channel timings),
 2026-11-16/17 (probe, nodeasb01g benchmark, gate, synth batch).
 
@@ -133,6 +136,20 @@ roll path; the flag remains for very large boxes where it should pay more.**
 Fit-level gates (11 synthetic + 3 real, same discipline as O1): running
 2026-11-17, results to follow.
 
+**Per-stage breakdown (2026-11-17, `scripts_extras/o2_breakdown_T.py`) — why
+T only gained 1.03×:** T's 8 rods weld into **6 rods + 2 rods** (transitive
+chain); the 6-rod group's sub-box (side 475 ≥ 392) takes the FALLBACK, and
+the fallback is exactly where O2 does not apply. The ramp touched only the
+2-rod cluster (~0.35 s of the 7.5 s bank) → measured 0.21 s saved. E splits
+3+1, both sub-boxes ramped → 0.89 s saved of 3.8 s. **The welded-fallback
+group, not the per-candidate object FFT, is the dominant remaining cost** —
+that is O3's target (parallelize the (rod × candidate) convs; the fallback
+cluster alone is 42 independent full-box convs in T). Incidental: E's
+1-rod cluster is side 89 — a PRIME FFT size, slow per voxel (236 ms/cand
+vs 204 ms for 18× more voxels). Sub-boxes could be zero-padded to a
+friendly size with a larger `_crop_cyclic` (exactness is size-independent
+for cyclic crops, only |x−u| ≤ half matters) — deferred micro-opt, O3.
+
 ### O3 — Parallelize  *(2–6× per core, ~20–50 lines, low risk)*
 
 Three independent levels:
@@ -147,6 +164,29 @@ Gotchas: dynamic scheduling for uneven rod supports; PSF volume duplication
 `OMP_NUM_THREADS=1` per worker, reduce in fixed order, and add a test that the
 parallel result matches the serial one bitwise (or to 1e-15) so reproducibility
 isn't silently lost.
+
+**Implemented 2026-11-17 (level 3: per-cluster (rod × candidate) convs):**
+`FitInput3D.n_workers` (default 1 = serial; 0 = cpu_count capped) threads the
+bank tasks through a `ThreadPoolExecutor` — pocketfft releases the GIL, each
+bank slot is written by exactly one task, and there is no cross-task
+reduction, so parallel output is **bitwise identical** to serial (unit tests
+`TestBankParallelism` + fit-level determinism test, 10/10 green on the
+server). Measured on the real regions (bank, 7 cands, nodeasb01g):
+
+| region | serial | 8 workers | auto |
+|---|---|---|---|
+| T (42 convs, welded fallback) | 7.69 s | 5.4× | **7.5×** |
+| D_clean (35 convs, fallback) | 3.73 s | 4.5× | **6.6×** |
+| E_clean (28 convs) | 4.25 s | 4.2× | **6.1×** |
+
+The win lands exactly where O1 could not: the welded single-cluster
+fallbacks (the §O2 breakdown showed T's 6-rod group is the dominant cost).
+Levels 1 (multi-starts) and 2 (Jacobian columns) are still serial; O4's
+warm-start would cut their count. **Default stays 1 (serial) until an
+end-to-end fit A/B on a real region confirms the bank gain survives the
+whole fit** — the bank is only ~25–40 % of a T/E cluster-fit (the rest is
+PSF builds + NNLS + the outer loop), so the end-to-end expectation is
+~1.5–2× on cluster arms, more on fallback-heavy ones.
 
 ### O4 — Coarser search / cheaper eval, as flags  *(3–8×, small, low risk)*
 

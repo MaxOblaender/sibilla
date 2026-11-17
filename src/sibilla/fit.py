@@ -31,6 +31,8 @@ diameter, skeleton, z-planes, modes, photon scale, B_nom).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Sequence
 
 import numpy as np
@@ -379,6 +381,10 @@ class FitInput3D:
                                    # "full_box" = legacy bit-exact path
     z_phase_ramp: bool = False     # O2: z-candidates via FFT phase ramp
                                    # (cluster sub-box path only; flip after gate)
+    n_workers: int = 1             # O3: bank conv threads (1 = serial default;
+                                   # 0 = cpu_count, capped; threads safe:
+                                   # pocketfft releases the GIL, and every
+                                   # bank slot is written exactly once)
 
 
 def _capsule_objects(fit_in: "FitInput3D", z_off_plane: np.ndarray
@@ -496,6 +502,7 @@ def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
                          policy: str = "full_box",
                          kernel_reach_px: int | None = None,
                          z_phase_ramp: bool = False,
+                         n_workers: int = 1,
                          ) -> list[list[np.ndarray]]:
     """Blurred-column bank: bank[s][i] = (nz, len(idx)) for rod s, candidate i.
 
@@ -571,9 +578,16 @@ def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
     for s in range(nseg):
         groups.setdefault(_find(s), []).append(s)
 
-    # --- per-cluster sub-box convolution ------------------------------------
+    # --- per-cluster convolution as (job, s, i) tasks (O3) ------------------
+    # Every bank slot is written by exactly ONE task; tasks read shared
+    # read-only arrays -> execution order is irrelevant, so thread-parallel
+    # results are BITWISE identical to the serial ones (pocketfft releases
+    # the GIL; no cross-task reduction exists).
     bank: list[list[np.ndarray | None]] = [[None] * len(zcand_int)
                                            for _ in range(nseg)]
+    jobs: list[dict] = []
+    tasks: list[tuple[int, int, int]] = []      # (job, s, i)
+
     for members in groups.values():
         gids = np.unique(np.concatenate([idx_per_rod[s] for s in members]))
         gys, gxs = gids // n, gids % n
@@ -593,12 +607,15 @@ def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
         half = int(np.ceil(d_roi + d_sup)) + 4
         side = 2 * half + 1
 
+        def _full_job():
+            jobs.append({"kind": "full"})
+            j = len(jobs) - 1
+            tasks.extend((j, s, i) for s in members
+                         for i in range(len(zcand_int)))
+
         if side >= min(m, n):
             # cluster spans the box: full-box conv (no win, identical math)
-            for s in members:
-                for i, dz in enumerate(zcand_int):
-                    oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
-                    bank[s][i] = cyclic3d(oc, psf).reshape(nz, -1)[:, idx]
+            _full_job()
             continue
 
         y0 = int(min(max(0, np.floor(cy - half)), m - side))
@@ -606,10 +623,7 @@ def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
         y1, x1 = y0 + side, x0 + side
         inside = ((gys >= y0) & (gys < y1) & (gxs >= x0) & (gxs < x1))
         if not inside.all():            # safety net; half covers it by design
-            for s in members:
-                for i, dz in enumerate(zcand_int):
-                    oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
-                    bank[s][i] = cyclic3d(oc, psf).reshape(nz, -1)[:, idx]
+            _full_job()
             continue
 
         psf_s = _crop_cyclic(psf, half)
@@ -624,19 +638,47 @@ def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
         kz = np.fft.fftfreq(nz) * nz              # integer freq bins, shape (nz,)
         phase = np.exp(-2j * np.pi * kz * np.asarray(zcand_int)[:, None]
                        / nz)                      # (nzc, nz) complex128
+        # per-member crops (views) + (with the ramp) the once-per-rod
+        # forward FFT: precomputed SERIALLY here; worker tasks only READ.
+        crops, f_o0s = {}, {}
         for s in members:
-            f_o0 = (sp_fft.fftn(objs[s][:, y0:y1, x0:x1]) if z_phase_ramp
-                    else None)
-            for i, dz in enumerate(zcand_int):
-                if z_phase_ramp:
-                    f_o = f_o0 if dz == 0 else f_o0 * phase[i][:, None, None]
-                else:
-                    oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
-                    f_o = sp_fft.fftn(oc[:, y0:y1, x0:x1])
-                col = sp_fft.ifftn(f_o * f_p).real.reshape(nz, -1)
-                out = np.zeros((nz, L))
-                out[:, pos_all] = col[:, sub_pos]
-                bank[s][i] = out
+            crops[s] = objs[s][:, y0:y1, x0:x1]
+            if z_phase_ramp:
+                f_o0s[s] = sp_fft.fftn(crops[s])
+        jobs.append({"kind": "sub", "f_p": f_p, "sub_pos": sub_pos,
+                     "pos_all": pos_all, "crops": crops, "f_o0s": f_o0s,
+                     "phase": phase})
+        j = len(jobs) - 1
+        tasks.extend((j, s, i) for s in members
+                     for i in range(len(zcand_int)))
+
+    def _run_one(task: tuple[int, int, int]) -> None:
+        j, s, i = task
+        dz = zcand_int[i]
+        job = jobs[j]
+        if job["kind"] == "full":
+            oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
+            bank[s][i] = cyclic3d(oc, psf).reshape(nz, -1)[:, idx]
+            return
+        if z_phase_ramp:
+            f_o = (job["f_o0s"][s] if dz == 0
+                   else job["f_o0s"][s] * job["phase"][i][:, None, None])
+        else:
+            oc = (job["crops"][s] if dz == 0
+                  else np.roll(job["crops"][s], dz, axis=0))
+            f_o = sp_fft.fftn(oc)
+        col = sp_fft.ifftn(f_o * job["f_p"]).real.reshape(nz, -1)
+        out = np.zeros((nz, L))
+        out[:, job["pos_all"]] = col[:, job["sub_pos"]]
+        bank[s][i] = out
+
+    nw = os.cpu_count() if n_workers == 0 else int(n_workers)
+    if nw <= 1 or len(tasks) <= 1:
+        for t_ in tasks:
+            _run_one(t_)
+    else:
+        with ThreadPoolExecutor(max_workers=min(nw, len(tasks))) as ex:
+            list(ex.map(_run_one, tasks))
     return bank  # type: ignore[return-value]
 
 
@@ -714,7 +756,8 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
         return blurred_bank_columns(objs, psf, z_plane_int, idx,
                                     idx_per_rod=idx_per_rod,
                                     policy=fit_in.bank_policy,
-                                    z_phase_ramp=fit_in.z_phase_ramp)
+                                    z_phase_ramp=fit_in.z_phase_ramp,
+                                    n_workers=fit_in.n_workers)
 
     def solve_at(bank: list[np.ndarray], z_sel: np.ndarray):
         """Weighted per-plane-bg NNLS with column s = bank[s][z_sel[s]].
