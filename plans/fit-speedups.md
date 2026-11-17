@@ -1,10 +1,10 @@
 # Plan — Speeding up the Zernike fit (`fit_3d`)
 
-Status: **O1 contract measured (§4); implementation in progress on this
-branch** (maintainer decision 2026-11-17: design + implementation both land
-here, overriding the default one-topic/perf-branch convention for this case).
-Measured numbers are from 2026-10-30 (local + nodeasb01) on the real AF488
-channel, confocal model; §4–§5 measured 2026-11-16 on synthetic clusters.
+Status: **O1 implemented behind `FitInput3D.bank_policy`** ("full_box" =
+legacy default; "cluster" = opt-in until the real-cluster calibration passes,
+plan §4.3). O2–O5 not implemented. Measured numbers are from 2026-10-30
+(local + nodeasb01) on the real AF488 channel, confocal model; §4–§5 measured
+2026-11-16/17 on synthetic clusters (probe + nodeasb01g benchmark).
 
 ## 0. Where the time goes (measured)
 
@@ -286,14 +286,24 @@ a naive per-rod sub-box zeroes them. Two admissible policies:
   `bank_policy="cluster"` = grouped sub-boxes + cross-group zeros. Default
   stays `full_box` until the real-cluster calibration passes.
 
-### 4.4 Measured speedup (region5-like geometry)
+### 4.4 Measured speedup
 
-43×551×551 box, 2 rods 800 px apart, 7 z-candidates, z kept full:
-full-box bank **16.7 s** → sub-box bank **1.81 s** = **9×** on the dominant
-cost, near-field exact to 1.1e-15. The PSF-volume build (1.9 s) is unchanged.
-Combined with O2 (kills the ×7 candidate factor on the object FFT) and O3
-(cores), the cumulative O1–O4 estimate stands; the Amdahl limit shifts to
-NNLS + outer loop, which is what O3's parallel axes and O5 (if ever) address.
+Prototype probe (2026-11-16, 43×551×551, 2 rods 800 px apart, z full):
+full-box bank 16.7 s → sub-box 1.81 s = **9×**.
+
+Production code path (2026-11-17, nodeasb01g, idle, commit a179b62,
+`scripts_extras/bank_bench_server.py`):
+
+| geometry | full_box bank | cluster bank | speedup | near-field |
+|---|---|---|---|---|
+| region5-like: 43×893², 2 rods ~800 px apart | 90.7 s | 2.46 s | **36.8×** | 8.7e-16 |
+| region3-like: 36×393², 7 rods ≤ ~200 px apart | 53.5 s | 47.3 s | 1.1× | bit-identical (fallback) |
+
+The tight cluster merges into one group whose sub-box spans the box → the
+code falls back to the full-box conv per group (identical math, no win).
+Tight clusters need O2 (phase-ramp z-candidates) and O3 (parallelism); spread
+clusters — the expensive weekend cases — get the bank win now. The PSF-volume
+build is unchanged in both policies (9.4 s at 893²), as is the NNLS.
 
 ## 5. Solver policy — CPU and GPU run the SAME solver
 
