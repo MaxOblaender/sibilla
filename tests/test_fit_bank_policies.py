@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from scipy import fft as sp_fft
 
 from sibilla.defaults import Z_CANDIDATE_GRID_UM
@@ -228,6 +229,59 @@ class TestBankParallelism:
         for mode in (5, 6, 7, 8):
             assert a.coeffs[mode] == b.coeffs[mode], mode
         assert np.array_equal(a.segment_z_um, b.segment_z_um)
+
+
+class TestWarmStart:
+    """O4 (plans/fit-speedups.md §O4): initial_coeffs replaces the zero
+    start; with n_multi_start=0 the fit runs a single outer loop seeded
+    from the caller's vector (tiled-field-scan use case)."""
+
+    def test_wrong_length_raises_fast(self):
+        fov, nz = 96, 15
+        cfg = _config(fov)
+        data = np.full((nz, fov, fov), 250.0)
+        fit_in = FitInput3D(
+            data=data, config=cfg, skeleton=np.array([[44, 48, 7, 60, 52, 7]],
+                                                     dtype=float),
+            z_planes_um=(np.arange(nz) - (nz - 1) / 2) * 0.5,
+            nominal_budget=4500.0, fluorescent_diameter_um=0.65,
+            initial_coeffs=[0.1, 0.0])
+        with pytest.raises(ValueError, match="initial_coeffs"):
+            fit_3d(fit_in)
+
+    def test_warm_start_single_start_recovers(self):
+        fov, nz = 96, 15
+        cfg = _config(fov)
+        psf = psf3d_cyclic(cfg, COEFFS, nz, 0.5, model="confocal")
+        spec = _spec(fov)
+        skel = np.array([[44, 48, 7, 60, 52, 7],
+                         [32, 60, 7, 46, 66, 7]], dtype=float)
+        objs = [render_capsule_unit(*s, spec) for s in skel]
+        rng = np.random.default_rng(7)
+        data = np.full((nz, fov, fov), 250.0)
+        for obj in objs:
+            data += 4500.0 * cyclic3d(obj, psf) / obj.max()
+        data = rng.poisson(data).astype(np.float64)
+        z_planes = (np.arange(nz) - (nz - 1) / 2) * 0.5
+        truth = [0.1, -0.1, 0.0, 0.0]
+
+        def _fit(**kw):
+            return fit_3d(FitInput3D(
+                data=data, config=cfg, skeleton=skel, z_planes_um=z_planes,
+                nominal_budget=4500.0, fluorescent_diameter_um=0.65,
+                z_candidate_um=Z_CANDIDATE_GRID_UM, psf_model="confocal",
+                n_multi_start=0, max_nfev=30, n_outer_sweeps=2,
+                bank_policy="cluster", **kw))
+
+        warm = _fit(initial_coeffs=truth)
+        cold = _fit()
+        for mode in (5, 6, 7, 8):
+            assert abs(warm.coeffs[mode] - cold.coeffs[mode]) < 0.01, mode
+        assert np.allclose(warm.segment_z_um, cold.segment_z_um)
+        # deterministic: same warm start twice -> bitwise identical
+        warm2 = _fit(initial_coeffs=truth)
+        for mode in (5, 6, 7, 8):
+            assert warm.coeffs[mode] == warm2.coeffs[mode]
 
 
 class TestFit3DBankPolicy:

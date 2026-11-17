@@ -182,21 +182,42 @@ server). Measured on the real regions (bank, 7 cands, nodeasb01g):
 The win lands exactly where O1 could not: the welded single-cluster
 fallbacks (the §O2 breakdown showed T's 6-rod group is the dominant cost).
 Levels 1 (multi-starts) and 2 (Jacobian columns) are still serial; O4's
-warm-start would cut their count. **Default stays 1 (serial) until an
-end-to-end fit A/B on a real region confirms the bank gain survives the
-whole fit** — the bank is only ~25–40 % of a T/E cluster-fit (the rest is
-PSF builds + NNLS + the outer loop), so the end-to-end expectation is
-~1.5–2× on cluster arms, more on fallback-heavy ones.
+warm-start would cut their count. **Cost correction (2026-11-17, read of
+`fit_3d`'s loop):** the bank is rebuilt on EVERY `least_squares` nfev call
+(`residuals()` → `blurred_bank(c)`), so a fit spends ~(n_nfev + n_outer_sweeps
++ CD + final) bank calls — the bank is the DOMINANT end-to-end share, not
+~25 %. The e2e gate therefore measures a large expected speedup, and the
+bank bench above is a floor, not an estimate. Default stays 1 (serial)
+until the e2e A/B on real regions confirms bitwise-identical results AND
+the measured gain.
 
-### O4 — Coarser search / cheaper eval, as flags  *(3–8×, small, low risk)*
+### O4 — Coarser search / cheaper eval, as flags  *(rescoped 2026-11-17 after O1–O3)*
 
-All as **opt-in flags with a passing equivalence test**, never defaults:
-- Coarse-then-refine z: search {0,±1} first, refine around the winner.
-- PSF grid G = 256 (resolve the Airy core) instead of box size — 8× fewer
-  voxels per 2D FFT; validate coefficients shift < 0.005 waves once.
-- Warm start: initialize coefficients from the nearest already-fitted region
-  (the field is smooth — physically justified) and run 1 start.
-- 2× data downsampling for a first-pass estimate, full-res refinement.
+Original list re-evaluated against the post-O1/O2/O3 cost structure:
+
+- **Warm start — IMPLEMENTED** as `FitInput3D.initial_coeffs`: an explicitly
+  provided coefficient vector REPLACES the zero start; combined with
+  `n_multi_start=0` the fit runs a single outer loop (≈3× fewer bank calls
+  than the default 3-start fit). Use case: the tiled-field-scan campaign
+  seeds each tile from its nearest already-fitted neighbour (the field's
+  aberration is smooth — physically justified). Tests: warm-start fit
+  recovers the same optimum as the zero-start fit (gate 0.01), deterministic
+  across repeats, wrong-length raises before any work.
+- **Coarse-then-refine z — dropped (no-op in this architecture):** CD
+  reuses the precomputed bank, so a coarse z pass saves only cheap NNLS
+  calls, not bank work; and with O2 the per-candidate bank cost is already
+  small. The trajectory risk is not justified.
+- **PSF grid G=256 — dropped (not realizable + absorbed):** the cyclic-box
+  convolution requires the PSF on the box grid (a 256² PSF cannot sample an
+  893² ROI), and its intent — smaller FFTs — is already delivered by O1's
+  per-cluster sub-boxes. (PSF-build cost share is measured in
+  `scripts_extras/cost_breakdown_D.py`; if it ever dominates, the fix is a
+  batched-PSF-build lever (O5), not a smaller grid.)
+- **2× data downsampling — deferred:** a model change on a fit that is
+  under-determined at this SNR (known-state §9: Z5–Z8 are not point-
+  identifiable); an approximation cannot be validated by the §3 gate
+  (|ΔZ| < 0.01 assumes a stable optimum). Revisit only with a regularised
+  posterior (the §9 consequence), not as a speed flag.
 
 ### O5 — GPU  *(10–50× only on large boxes, large effort, higher risk — defer)*
 

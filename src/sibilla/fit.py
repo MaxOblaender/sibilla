@@ -385,6 +385,11 @@ class FitInput3D:
                                    # 0 = cpu_count, capped; threads safe:
                                    # pocketfft releases the GIL, and every
                                    # bank slot is written exactly once)
+    initial_coeffs: Sequence[float] | None = None   # O4: warm start — replaces
+                                   # the zero start; combine with
+                                   # n_multi_start=0 for a single-start fit
+                                   # (tiled-field-scan: seed from the nearest
+                                   # fitted region, plan §O4)
 
 
 def _capsule_objects(fit_in: "FitInput3D", z_off_plane: np.ndarray
@@ -712,7 +717,19 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     bounds = (-fit_in.coeff_bound, fit_in.coeff_bound)
     rng = np.random.default_rng(fit_in.rng_seed)
     npar = len(modes)
-    starts = [np.zeros(npar)]
+    # O4 warm start (plans/fit-speedups.md §O4): an explicitly provided
+    # initial coefficient vector REPLACES the zero start — the tiled-scan
+    # workflow seeds from the nearest fitted region and runs n_multi_start=0
+    # (a single, cheaper outer loop).
+    if fit_in.initial_coeffs is not None:
+        if len(fit_in.initial_coeffs) != npar:
+            raise ValueError(
+                f"initial_coeffs has {len(fit_in.initial_coeffs)} entries, "
+                f"expected {npar} for modes {list(modes)}")
+        starts = [np.clip(np.asarray(fit_in.initial_coeffs, dtype=float),
+                          *bounds)]
+    else:
+        starts = [np.zeros(npar)]
     starts += [rng.uniform(-fit_in.start_range, fit_in.start_range, npar)
                for _ in range(fit_in.n_multi_start)]
 
