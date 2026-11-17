@@ -17,7 +17,11 @@
 
 # --- plans: default-ignored; a branch tracks a specific plan by negating it ---
 # (add lines like `!/plans/<topic>.md` on the branch that owns the plan)
-/plans/
+# NOTE: must ignore the CONTENTS (`plans/*`), not the directory (`/plans/`) —
+# git cannot re-include files inside an excluded directory.
+!/plans/
+plans/*
+!/plans/fix-ensemble-pinned-crops.md
 
 # --- never track, anywhere ---
 __pycache__/
@@ -25,3 +29,4 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
+!/plans/fix-ensemble-pinned-crops.md
