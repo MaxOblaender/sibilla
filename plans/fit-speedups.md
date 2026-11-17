@@ -1,7 +1,10 @@
 # Plan — Speeding up the Zernike fit (`fit_3d`)
 
-Status: **design only, nothing implemented.** Measured numbers are from
-2026-10-30 (local + nodeasb01) on the real AF488 channel, confocal model.
+Status: **O1 contract measured (§4); implementation in progress on this
+branch** (maintainer decision 2026-11-17: design + implementation both land
+here, overriding the default one-topic/perf-branch convention for this case).
+Measured numbers are from 2026-10-30 (local + nodeasb01) on the real AF488
+channel, confocal model; §4–§5 measured 2026-11-16 on synthetic clusters.
 
 ## 0. Where the time goes (measured)
 
@@ -268,10 +271,18 @@ a naive per-rod sub-box zeroes them. Two admissible policies:
 - **(b) Cross-group truncation (opt-in flag, model change):** zero the far
   tail. Effect at other rods' ROI pixels ≤ 3.3e-3 of column scale — admissible
   ONLY after the §3 statistical gate (max |ΔZ| < 0.01 waves, identical
-  bound-pinning flags) on ≥ 10 synthetic + 3 real clusters. Note: for rods
-  separated by more than half the box, the current full-box "tail" is itself
-  a cyclic-wrap artifact, so truncation there arguably fixes the model — but
-  it is still gated, never silent.
+  bound-pinning flags) on ≥ 10 synthetic + 3 real clusters.
+
+  **Correction (2026-11-17), found while implementing:** for rods separated
+  by MORE than half the padded box, the current full-box code's cross-rod
+  entries are not real signal at all — they are the *cyclic-wrap artifact*
+  (the FFT kernel read at `separation mod box`, e.g. 800 px apart on an 893²
+  box reads the kernel at 93 px ≈ 0.3 % of scale). Zeroing those entries is
+  therefore arguably a **correction**, not an approximation — but it still
+  changes fit outputs, so it stays behind the flag and the gate. Policy
+  naming: `bank_policy="full_box"` reproduces current behavior bit-exactly;
+  `bank_policy="cluster"` = grouped sub-boxes + cross-group zeros. Default
+  stays `full_box` until the real-cluster calibration passes.
 
 ### 4.4 Measured speedup (region5-like geometry)
 

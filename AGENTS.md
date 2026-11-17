@@ -64,8 +64,10 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
 
 - **Plans live in `plans/`**, tracked file-by-file (see `.gitignore`). Two live
   specs: `manual-structure-selection.md` (manual ROI rod selection — designed,
-  not implemented) and `fit-speedups.md` (performance plan — see branch
-  `feat/fit-speedups`).
+  not implemented) and `fit-speedups.md` (performance plan + measured O1
+  contract). **Both design and implementation of the fitter speedups live on
+  branch `feat/fit-speedups`** (maintainer decision 2026-11-17 — exception to
+  the one-topic branch rule, so the plan and its code stay together).
 - **Fiji ROI input format (reverse-engineered from a real file):** `RoiSet.zip`
   = one binary `.roi` per ROI (132–156 bytes, `Iout` v0): 4× big-endian float32
   line endpoints at byte 18, int16 z-plane at byte 74, name in the trailing
