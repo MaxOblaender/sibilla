@@ -105,34 +105,103 @@ class TestG3Checks:
 
 class TestFitEnsemble:
     def test_synthetic_two_crop_ensemble(self):
+        """Ensemble over two INDEPENDENT valid crops sharing the aberration.
+
+        Each crop is a self-consistent fit on its own (rods inside with margin,
+        correct skeleton) — the real use case. The old test sliced ONE volume
+        into two 64² halves; each half was an invalid fragment (rods cut by the
+        edge, skeleton listing rods that weren't there), which is what produced
+        the pinned, wrong-crop result (plans/fix-ensemble-pinned-crops.md).
+        """
         from sibilla.real_pipeline import fit_ensemble
 
-        # one volume, cut into 2 crops that share the same PSF
-        vol, skel, offs, z_planes = _volume_with_rods(
-            n_seg=4, coeffs={5: 0.08, 6: -0.06}, fov=128, seed=5)
-        half = 64
+        coeffs = {5: 0.08, 6: -0.06}
+        # two independent crops of the same field: same PSF/aberration,
+        # different rod layouts (different seeds), each a valid fit
         crop_metas = []
-        for name, (ys, xs) in {"A": (0, 0), "B": (64, 0)}.items():
-            stack = vol[:, ys:ys + half, xs:xs + half].astype(np.float32)
-            # re-locate skeleton into crop coordinates
-            seg = skel.copy()
-            seg[:, 1] -= ys
-            seg[:, 3] -= ys
-            seg[:, 0] -= xs
-            seg[:, 2] -= xs
+        for name, seed in {"A": 3, "B": 4}.items():
+            vol, skel, offs, z_planes = _volume_with_rods(
+                n_seg=3, coeffs=coeffs, fov=96, seed=seed)
             crop_metas.append({
                 "name": name, "pixel_size_um": 0.1135, "z_step_um": 0.5,
                 "lambda_um": 0.517, "na": 1.2, "n_im": 1.33,
-                "fluorescent_diameter_um": 0.65, "skeleton": seg.tolist(),
-                "n_segments": len(seg),
+                "fluorescent_diameter_um": 0.65, "skeleton": skel.tolist(),
+                "n_segments": len(skel),
                 "z_planes_um": z_planes.tolist(), "nominal_budget": 4500.0,
-                "_data": stack,
+                "_data": vol,
             })
         out_dir = Path("results/_test_ensemble")
         out_dir.mkdir(parents=True, exist_ok=True)
         res = fit_ensemble(crop_metas, out_dir)
         assert "coeffs" in res
-        err5 = abs(res["coeffs"].get(5, 0.0) - 0.08)
-        err6 = abs(res["coeffs"].get(6, 0.0) - (-0.06))
+        # NOTE: the report serializes mode numbers as STRING keys ("5", "6", …)
+        # — the old test read them with int keys and silently got 0.0 back,
+        # which is what made the failure look like a fit stall.
+        err5 = abs(res["coeffs"].get("5", 0.0) - 0.08)
+        err6 = abs(res["coeffs"].get("6", 0.0) - (-0.06))
         assert err5 < 0.04 and err6 < 0.04
+        assert res["n_crops"] == 2
+        assert res["n_crops_used"] == 2
+        assert res["n_crops_rejected"] == 0
         assert (out_dir / "fit_report.json").exists()
+
+    def test_ensemble_wiring_excludes_pinned_crop(self, monkeypatch, tmp_path):
+        """fit_ensemble WIRING (no imaging): with one admissible and one
+        bound-pinned crop, the report must exclude the pinned crop, keep the
+        good one's coefficients, and record both names. Closes the gap found
+        by adversarial review 2026-11-17 (policy was only tested directly).
+        """
+        from sibilla import real_pipeline
+        from sibilla.fit import FitResult
+
+        good = {5: 0.08, 6: -0.06, 7: 0.004, 8: -0.002}
+        pinned = {5: -0.5, 6: 0.5, 7: -0.476, 8: 0.270}
+
+        def fake_fit_3d(fit_in):
+            return FitResult(coeffs=dict(_next.pop(0)),
+                             amplitudes=np.zeros(1), background=0.0,
+                             z_offset_um=0.0, cost=1.0,
+                             residuals=np.zeros((1, 1, 1)))
+
+        # call order: main loop over crops (good, pinned), then λ refits for
+        # ADMISSIBLE crops only (good, good). A StopIteration here means the
+        # call pattern changed — update this test deliberately, not silently.
+        _next = [good, pinned, good, good]
+        monkeypatch.setattr(real_pipeline, "fit_3d", fake_fit_3d)
+        metas = []
+        for i, name in enumerate(("crop0", "crop1")):
+            metas.append({
+                "name": name, "pixel_size_um": 0.1135, "z_step_um": 0.5,
+                "lambda_um": 0.517, "na": 1.2, "n_im": 1.33,
+                "fluorescent_diameter_um": 0.65,
+                "skeleton": [[10 + i, 10, 7, 20 + i, 10, 7]],
+                "n_segments": 1, "z_planes_um": [(k - 7) * 0.5 for k in range(15)],
+                "nominal_budget": 4500.0, "_data": np.zeros((15, 16, 16)),
+            })
+        res = real_pipeline.fit_ensemble(metas, tmp_path)
+        assert res["n_crops_used"] == 1
+        assert res["n_crops_rejected"] == 1
+        assert res["used_crops"] == ["crop0"]
+        assert res["rejected_crops"] == ["crop1"]
+        assert abs(res["coeffs"]["5"] - good[5]) < 1e-12
+        assert abs(res["coeffs"]["6"] - good[6]) < 1e-12
+
+    def test_ensemble_wiring_all_pinned_raises(self, monkeypatch, tmp_path):
+        """All crops pinned -> fit_ensemble must propagate the loud failure
+        (the old code silently averaged pinned crops into a garbage estimate)."""
+        from sibilla import real_pipeline
+        from sibilla.fit import FitResult
+
+        pinned = {5: -0.5, 6: 0.5, 7: -0.476, 8: 0.270}
+        monkeypatch.setattr(real_pipeline, "fit_3d", lambda fit_in: FitResult(
+            coeffs=dict(pinned), amplitudes=np.zeros(1), background=0.0,
+            z_offset_um=0.0, cost=1.0, residuals=np.zeros((1, 1, 1))))
+        metas = [{"name": f"crop{i}", "pixel_size_um": 0.1135,
+                  "z_step_um": 0.5, "lambda_um": 0.517, "na": 1.2, "n_im": 1.33,
+                  "fluorescent_diameter_um": 0.65, "skeleton": [[10, 10, 7, 20, 10, 7]],
+                  "n_segments": 1, "z_planes_um": [(k - 7) * 0.5 for k in range(15)],
+                  "nominal_budget": 4500.0, "_data": np.zeros((15, 16, 16))}
+                 for i in range(2)]
+        with pytest.raises(ValueError, match="pinned"):
+            real_pipeline.fit_ensemble(metas, tmp_path)
+

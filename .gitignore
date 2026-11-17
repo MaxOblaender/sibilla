@@ -16,8 +16,12 @@
 !/.gitignore
 
 # --- plans: default-ignored; a branch tracks a specific plan by negating it ---
-# a branch that owns a plan adds this (3 layers: un-exclude dir, exclude contents, re-include the file):
-/plans/
+# (add lines like `!/plans/<topic>.md` on the branch that owns the plan)
+# NOTE: must ignore the CONTENTS (`plans/*`), not the directory (`/plans/`) —
+# git cannot re-include files inside an excluded directory.
+!/plans/
+plans/*
+!/plans/fix-ensemble-pinned-crops.md
 
 # --- never track, anywhere ---
 __pycache__/
@@ -26,8 +30,6 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 
-!/plans/
-plans/*
 !/plans/fit-speedups.md
 !/plans/fix-ensemble-pinned-crops.md
 !/plans/z-range-derivation.md
