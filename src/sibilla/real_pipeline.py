@@ -196,13 +196,53 @@ def build_ensemble(czi_path: str | Path, channel: int,
     return ensemble
 
 
+def combine_ensemble(per_crop: list[dict], coeff_bound: float = 0.5,
+                     ) -> tuple[dict[int, float], list[str], list[str]]:
+    """Combine per-crop Zernike fits into the ensemble estimate.
+
+    Policy (plans/fix-ensemble-pinned-crops.md, 2026-11-17):
+
+    - A crop whose fit pinned at the coefficient bound is EXCLUDED: a pinned
+      result carries no direction information, and averaging it into free
+      crops corrupts them (measured: crop A correct, crop B pinned at ±0.5,
+      naive average meaningless).
+    - Surviving crops are averaged with their declared weights.
+    - If EVERY crop pinned, raise: there is no ensemble estimate to report,
+      and a silent garbage average is the failure mode this exists to prevent.
+
+    Returns (coeffs, used_names, rejected_names).
+    """
+    if not per_crop:
+        raise ValueError("combine_ensemble: no crops given")
+    used = [c for c in per_crop
+            if not any(abs(v) >= coeff_bound - 1e-9
+                       for v in c["coeffs"].values())]
+    if not used:
+        raise ValueError(
+            "combine_ensemble: all crops pinned at the coefficient bound "
+            f"({coeff_bound} waves) — no admissible ensemble estimate")
+    total_w = sum(c["weight"] for c in used)
+    if total_w <= 0:
+        raise ValueError("combine_ensemble: total weight of admissible "
+                         "crops is zero")
+    coeffs: dict[int, float] = {}
+    for j in used[0]["coeffs"]:
+        coeffs[j] = sum(c["coeffs"].get(j, 0.0) * c["weight"] for c in used) \
+            / total_w
+    used_names = [c["name"] for c in used]
+    return coeffs, used_names, \
+        [c["name"] for c in per_crop if c["name"] not in used_names]
+
+
 def fit_ensemble(ensemble: list[dict], out_dir: Path) -> dict:
     """One shared-Zernike fit across all crops (spec §6).
 
     Each crop is square-padded to its own square grid; the fitter runs per
-    crop and the per-mode coefficients are combined by a weighted average
-    (weight = n_segments × ROI size) — the ensemble principle. Bootstrap
-    over segments + λ ± 40 nm refits give the uncertainty.
+    crop and the per-mode coefficients are combined by
+    `combine_ensemble`: crops whose fit pinned at the coefficient bound are
+    EXCLUDED (a pinned crop carries no direction information), the rest are
+    weight-averaged (weight = declared n_segments). Bootstrap over the
+    admissible crops + λ ± 40 nm refits give the uncertainty.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -227,32 +267,33 @@ def fit_ensemble(ensemble: list[dict], out_dir: Path) -> dict:
         per_crop.append({"coeffs": res.coeffs, "weight": w,
                          "name": cm["name"]})
 
-    # weighted average of coefficients across crops
-    total_w = sum(c["weight"] for c in per_crop)
-    coeffs: dict[int, float] = {}
-    for j in REAL_MODES:
-        coeffs[j] = sum(c["coeffs"].get(j, 0.0) * c["weight"] for c in per_crop) \
-            / total_w
+    # policy layer: exclude bound-pinned crops, weight-average the rest
+    coeffs, used_names, rejected_names = combine_ensemble(
+        per_crop, coeff_bound=0.5)
+    used = [c for c in per_crop if c["name"] in used_names]
 
-    # bootstrap over crops (resample crops with replacement, 100x)
+    # bootstrap over the ADMISSIBLE crops only (resampling a pinned crop
+    # would poison the replicate it lands in)
     rng = np.random.default_rng(0)
     boots = {j: [] for j in REAL_MODES}
-    names = list(range(len(per_crop)))
+    names = list(range(len(used)))
     for _ in range(100):
         idx = rng.choice(names, size=len(names), replace=True)
-        bw = sum(per_crop[i]["weight"] for i in idx)
+        bw = sum(used[i]["weight"] for i in idx)
         for j in REAL_MODES:
             boots[j].append(sum(
-                per_crop[i]["coeffs"].get(j, 0.0) * per_crop[i]["weight"]
+                used[i]["coeffs"].get(j, 0.0) * used[i]["weight"]
                 for i in idx) / bw)
     sigma = {j: float(np.std(boots[j])) for j in REAL_MODES}
 
-    # λ ± 40 nm sensitivity: refit each crop with shifted λ
+    # λ ± 40 nm sensitivity: refit only the admissible crops
     lam_sens: dict[str, dict[int, float]] = {}
+    by_name = {cm["name"]: cm for cm in ensemble}
     for tag, dl in (("lam-40", -40.0), ("lam+40", 40.0)):
         c: dict[int, float] = {}
         tw = 0.0
-        for cm in ensemble:
+        for u in used:
+            cm = by_name[u["name"]]
             stack = cm["_data"]
             cfg = PupilConfig(pixel_size=cm["pixel_size_um"],
                               lambda_um=cm["lambda_um"] + dl / 1000.0,
@@ -268,8 +309,8 @@ def fit_ensemble(ensemble: list[dict], out_dir: Path) -> dict:
             )
             r = fit_3d(fit_in)
             for j in REAL_MODES:
-                c[j] = c.get(j, 0.0) + r.coeffs.get(j, 0.0) * cm["n_segments"]
-            tw += cm["n_segments"]
+                c[j] = c.get(j, 0.0) + r.coeffs.get(j, 0.0) * u["weight"]
+            tw += u["weight"]
         lam_sens[tag] = {j: c.get(j, 0.0) / tw for j in REAL_MODES}
 
     from .psf import strehl_marechal
@@ -287,6 +328,10 @@ def fit_ensemble(ensemble: list[dict], out_dir: Path) -> dict:
         "bootstrap_sigma": {str(j): v for j, v in sigma.items()},
         "g3": g3,
         "n_crops": len(ensemble),
+        "n_crops_used": len(used),
+        "n_crops_rejected": len(rejected_names),
+        "used_crops": used_names,
+        "rejected_crops": rejected_names,
         "n_segments_total": sum(cm["n_segments"] for cm in ensemble),
         "lambda_sensitivity": {
             k: {str(j): v for j, v in d.items()} for k, d in lam_sens.items()},

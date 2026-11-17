@@ -1,62 +1,58 @@
 # Plan — fix: ensemble averages pinned crops into good ones
 
-Status: **diagnosed 2026-11-17, not implemented.** Target branch:
-`fix/ensemble-pinned-crops` off `main`.
+Status: **implemented on this branch, validated (policy 7/7, wiring 2/2,
+integration 1/1 + full test_real_pipeline 10/10 on nodeasb01g), awaiting
+merge decision.** Adversarially reviewed 2026-11-17 (mutation-proven tests;
+per-crop convergence 0.0003 waves). Target: merge to `main` first, then
+`feat/fit-speedups`.
 
-## The failure
+## Root cause (measured; corrected by adversarial review)
 
-`tests/test_real_pipeline.py::TestFitEnsemble::test_synthetic_two_crop_ensemble`
-fails on `main` and on every branch (verified 2026-11-17: fails identically
-with the pre-O1 `fit.py`, 13 min run; deterministic across numpy 2.5.4/2.5.5).
-It predates the fit-speedups work; `real_pipeline.py` and the test are
-unchanged since the initial commit (`f4abdf7`).
+**Three defects, in layering order:**
 
-## Root cause (measured, `scripts_extras/diag_ensemble.py`)
+0. **Key-type bug in the test itself (the direct cause of the red suite):**
+   `fit_ensemble`'s report serializes modes as STRING keys
+   (`{"5": 0.08, ...}`) but the test read `res["coeffs"].get(5, 0.0)` with an
+   INT key — silently `0.0` every time. The assertion therefore evaluated
+   `|0.0 − 0.08| < 0.04` → **False regardless of fit quality**. Verified by
+   adversarial review: the mismatch pre-existed at HEAD, so the old test was
+   unpassable on key grounds alone. This is why the reported error was
+   exactly 0.08 (and why it looked like a fit stall — it wasn't one).
+1. **Invalid test inputs:** one 128² volume sliced into two 64² crops with
+   the FULL 4-rod skeleton handed to both. Crop A: 1 usable rod (still fit
+   correctly: Z5=+0.082, Z6=−0.058 vs truth +0.08/−0.06). Crop B: 4
+   skeletons, none real → fit pinned at ±0.5. (Also structural: a 64² crop
+   cannot contain two 3 µm rods with cyclic-wrap-safe margin — the sliced
+   construction tests an invalid use case; real workflows fit clean crops.)
+2. **No validity filter in `fit_ensemble`:** crop B's pinned result was
+   averaged into crop A's good one at equal weight → the reported ensemble
+   coefficients would have been ≈(0.29, 0.14) — garbage — had the key bug not
+   masked it. Field-test context: pinning is the dominant real-world failure
+   (`FIELDTEST_results_one_set_vs_Zmap.md` §9–§10), so this is a real design
+   gap, not a test artifact.
 
-The test slices a 128×128 volume with 4 rods into two 64×64 crops but hands
-**the same 4-rod skeleton to both**, re-centred. Measured per crop:
+## Plan (TDD, policy first — no imaging data needed) — ALL DONE 2026-11-17
 
-| crop | rods with ROI pixels inside | fit result | meaning |
-|---|---|---|---|
-| A (x 0–63) | 1 of 4 (one partial) | Z5=+0.082, Z6=−0.058, Z7=−0.004, Z8=+0.001 | **correct** (truth +0.08/−0.06) |
-| B (y 64–127) | 4 skeletons, none real | Z5=+0.500, Z6=+0.338, Z7=−0.476, Z8=+0.270 | **garbage, pinned at ±0.5** |
+1. ~~Policy tests~~ **done**: `tests/test_ensemble_policy.py` — 7 tests
+   (exclusion, weight respect, near-bound admissible, all-pinned raise,
+   majority-pinned, empty-input raise, zero-weight raise). Mutation-proven:
+   reverting to naive averaging fails exactly the 3 pinned-crop tests.
+2. ~~Implement~~ **done**: `real_pipeline.combine_ensemble` +
+   `fit_ensemble` rewired; bootstrap and λ-sensitivity refits restricted to
+   admissible crops; report gains `n_crops_used`/`n_crops_rejected`/
+   `used_crops`/`rejected_crops`.
+3. ~~Repair the integration test~~ **done**: two INDEPENDENT valid crops
+   (different seeds, same aberration) instead of one sliced volume; string
+   report keys; plus 2 wiring tests (monkeypatched `fit_3d`: pinned-crop
+   exclusion and all-pinned propagation through `fit_ensemble` — closes the
+   gap found by adversarial review).
+4. ~~Validate~~ **done**: policy 7/7 (0.5 s), wiring 2/2, integration 1/1
+   (per-crop convergence 0.0003 waves, both crops), full
+   `test_real_pipeline.py` 10/10 on nodeasb01g (2:54). Full-suite run on the
+   server: see branch status before merge.
 
-`fit_ensemble` averages them with equal weight (`n_segments` = 4 for both,
-regardless of how many rods are usable) → a good fit and a bounded garbage
-fit average to a meaningless number. Note crop A alone is already correct:
-the fitter and the physics are fine; the *inputs* and the *averaging policy*
-are not.
-
-## Two defects, separable
-
-1. **Test inputs invalid** — each crop gets all rods instead of only those
-   inside it; `n_segments` therefore overstates the usable evidence.
-2. **No validity filter in `fit_ensemble`** — a crop pinned at the bound is
-   averaged in at full weight. Given the field-test history (pinning is the
-   dominant real-world failure, `FIELDTEST_results_one_set_vs_Zmap.md` §9–§10),
-   this is a real design gap, not a test artifact.
-
-## Plan (TDD, policy first — no imaging data needed)
-
-Branch `fix/ensemble-pinned-crops` off `main` (after establishing `main` is
-red on this test — first commit = the evidence, none of this is a regression
-from the perf work).
-
-1. **Write the policy tests first** (milliseconds, pure dicts):
-   - one good crop + one pinned crop → result equals the good crop,
-     `n_crops_rejected == 1`
-   - weight by *usable* segments, not declared `n_segments`
-   - all crops pinned → report the condition (no silent average)
-   - a mode with a nonzero injected signal returning exactly 0.0 while
-     reporting success → surfaced, not averaged silently
-2. **Implement in `real_pipeline.fit_ensemble`**: reject/down-weight crops
-   pinned at `coeff_bound`, weight by usable segments, record
-   `n_crops_used` / `n_crops_rejected` in the report.
-3. **Repair the integration test input construction**: pass each crop only
-   the rods inside it; shrink it (smaller crops / fewer planes / shorter
-   `max_nfev`) so it stops costing ~13 min.
-4. **Verify**: full suite green on `main` afterwards; record before/after
-   runtime of the integration test.
-
-Separate from `feat/fit-speedups` — do not fold in there (unreadable diff,
-different topic).
+Note: weight semantics stay "declared n_segments" (the repaired test declares
+honestly); a usable-segment recount inside `fit_ensemble` is a possible
+follow-up, not needed for this fix. Known quirk left as-is: mode set comes
+from the first admissible crop (`used[0]["coeffs"]`) — all callers use
+REAL_MODES.
