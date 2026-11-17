@@ -64,25 +64,103 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
 
 - **Plans live in `plans/`**, tracked file-by-file (see `.gitignore`). Two live
   specs: `manual-structure-selection.md` (manual ROI rod selection — designed,
-  not implemented) and `fit-speedups.md` (performance plan — see branch
-  `feat/fit-speedups`).
+  not implemented) and `fit-speedups.md` (performance plan + measured O1
+  contract). **Both design and implementation of the fitter speedups live on
+  branch `feat/fit-speedups`** (maintainer decision 2026-11-17 — exception to
+  the one-topic branch rule, so the plan and its code stay together).
 - **Fiji ROI input format (reverse-engineered from a real file):** `RoiSet.zip`
   = one binary `.roi` per ROI (132–156 bytes, `Iout` v0): 4× big-endian float32
   line endpoints at byte 18, int16 z-plane at byte 74, name in the trailing
   bytes. Parser example: `scripts_extras/rod_probe.py`. z IS stored.
-- **Current fit-quality issues (open):** cluster fits can be unstable —
-  region3 pinned at the ±0.5-wave bound, suspected cause: cyclic-FFT box guard
-  band too small (2 µm fixed vs ~7 µm needed). The 99%-energy margin fix
-  exists in `scripts_extras/rod_fit*` / server runs but is NOT yet in the
-  package. Weekend fit logs: nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/`.
-- The fitter is single-threaded and slow on big boxes; performance options are
-  documented in `plans/fit-speedups.md`.
+- **Current fit-quality issues (open):** fits pin at the ±0.5-wave bound.
+  region3 did so TWICE with correct rod-z (incl. the 99 %-margin box
+  re-run, 2026-11-03) → a real, unexplained problem. The 15 field-test
+  A/B/C fits (2026-11-02) *also* all pinned, but a 2026-11-03 audit found
+  their throwaway runner had a **z-derivation bug** (every interior rod
+  placed 2–9 µm too high) → those fits are confounded. The corrected 8-fit
+  diagnostic on nodeasb01g **completed 2026-11-05: 8/8 ALL pin at ±1.5**
+  with correct z and clean rods — the full_clean de-contamination did
+  NOT de-pin (A ~unchanged; B ends with three modes at the bound, Z5
+  flipped sign), and seeds are bit-identical in all three regions (a
+  fixed point: `fit_3d` resets z-state per start, NOT seed stability).
+  A forward-model probe (c-sweep, 2026-11-04) shows the pinned
+  coefficients explain only ~4 points more tube signal than ZERO
+  aberration → the data are ~diffraction-limited. The C3 z0-vs-z3 probe
+  pins in BOTH arms (freeing z buys 0.9 % cost) → per the §8 matrix the
+  per-rod z-shift is NOT the escape channel either: **Z5–Z8 are
+  under-determined at this SNR — report bounds / a regularised
+  posterior, not point estimates**. Cause analysis (FIELDTEST
+  §9, 2026-11-05): pinning driver is **diffuse out-of-focus haze** the
+  per-plane-constant background cannot model (region A background
+  swings 139→354 counts; C flat) — NOT neighbour tube overlap (≤0.08,
+  uncorrelated with residuals), NOT orientation (all sets span 85–90°),
+  NOT rod quality/count. Consequence: **dense, light regions are bad
+  for fitting**; fit sparse, bright, isolated rods at bound 0.5; a
+  spatially-varying (ring) background is the fix for dense regions.
+  Next probes: coefficient prior (O-z4), more/better-oriented rods,
+  `plans/tiled-field-scan.md`. The 9-rod z_sweep (A/C z0-vs-z3, the
+  designated primary contrast) crashed 2026-11-04 in its `unexpl()`
+  metric AFTER the fits completed (~35 h of fits lost, nothing written
+  — same ValueError width_probe.py had); fixed and unit-verified
+  (`test_unexpl_patch.py`) 2026-11-05, b15 relaunch held in favour of
+  the bound-0.5 wave (C3 + A/B full_clean + C full, 4 parallel jobs,
+  launched 08:09 UTC 2026-11-05, watcher → `weekend_logs/z_sweep/DONE.b05`).
+  The maintainer then drew four sparse/deep ROI sets (FIELDTEST §10):
+  T (shallow, 3–7 µm) de-pins at +0.11/−0.12; the b0.5/z0 clean wave
+  completed 2026-11-05 ~15:20: **D (both variants) and E_clean de-pin at
+  depth (48.5–64.5 / 58–67 µm)** — "deep pins" is dead; what pins is S
+  (clean, n=1), E with its mis-z rods, and crowded A/B/C (A −,−, C +,+,
+  C3 +,+, all at b0.5); the best discriminator is now unmodelled per-rod
+  defocus (mis-z rods, crowding), not depth. **Signed Z6 is reportable
+  with the LOO caveat: 4/4 independent de-pinned sets give Z6 ≈ −0.12…
+  −0.23** (Z5 still flips: +0.11/−0.18/−0.31/+0.05; Z7/Z8 ≈ 0).
+  the bright+isolated+deep cell does not exist in this specimen (D/E +
+  full-field scan). Side result (§10.11): Dolphin A/B/C deconvolution —
+  rod peaks order by PSF breadth, psfT ≈ isotropic twin psfS → the fitted
+  astigmatism structure does not affect deconvolution; deconvolution
+  cannot adjudicate the Z6 sign. Z4-spherical mode test proposed, awaiting
+  maintainer go-ahead. nodeasb01 is reachable again
+  (idle, 256 cores — T-sized fits: 9 min vs ~1 h projected on a loaded node).
+  Run states,
+  probe results, and interpretation: `FIELDTEST_results_one_set_vs_Zmap.md`
+  §8–§10 (branch `feat/fit-speedups`); follow-up plans:
+  `plans/z-range-derivation.md`, `plans/tiled-field-scan.md`.
+  The 99%-energy margin fix exists in `scripts_extras/rod_fit*` / server
+  runs but is NOT yet in the package. Weekend fit logs:
+  nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/`.
+- The fitter's bank policy: **`cluster` (per-cluster sub-box convolution) is
+  the DEFAULT since 2026-11-17** on `feat/fit-speedups` — near-field exact to
+  ~1e-9, 1.7–1.8× faster end-to-end on spread clusters, bit-identical
+  fallback on tight ones (gate: 3 real + 11 synthetic, `plans/fit-speedups.md`
+  §4). Legacy exact path: `FitInput3D(bank_policy="full_box")`. NOTE: server
+  copies inherit the default only after the next rsync. O2 (phase-ramp
+  z-candidates) implemented behind `FitInput3D.z_phase_ramp` (default False
+  — measured ≤1.3× bank win on real regions; plan §O2). **O3 parallel bank
+  is the DEFAULT** (`FitInput3D.n_workers = 0` = auto: e2e gate 3/3 PASS,
+  bitwise identical, D 2.05×/E 2.04×/T 3.19× end-to-end; `n_workers=1` =
+  serial anchor). O4 warm start via `FitInput3D.initial_coeffs`. **Heavy
+  test/fit/bench runs go to nodeasb01g, not the laptop** (load ~18 desktop;
+  the same suites run ~5× faster there) — established convention
+  2026-11-17.
 
 ## Compute servers (prefer these for anything heavy)
 
 **Rule of thumb: fits, parallel region batches, and any job > ~10 min go on a
 server, not the laptop.** The laptop is for editing, fast tests, and
 derivation/probe scripts (seconds-scale).
+
+**From the laptop, `/asbdata` is NOT mounted.** Data, logs and results on the
+server are only reachable through ssh:
+
+```bash
+ssh nodeasb01  'cat /asbdata/moblaende26/zerniky/weekend_logs/merged.log'
+ssh nodeasb01g 'nvidia-smi'
+rsync -av nodeasb01:/asbdata/moblaende26/zerniky/weekend_logs/ ./weekend_logs/
+```
+
+Do not conclude "the logs/results are missing" from a local `ls` — check the
+server first. Both nodes share the same `/asbdata` NFS, so a file written on
+nodeasb01g is visible on nodeasb01 and vice versa.
 
 ### nodeasb01 (CPU workhorse)
 
@@ -97,6 +175,10 @@ derivation/probe scripts (seconds-scale).
   (then re-run `pip install -e . --no-deps` in the venv, or create a fresh one).
 - Data: `results/deconvolve/ch1_AF488_raw.tif` (196×1440×1920, ~1.08 GB),
   `GoC-Exp4_C3_7.czi`, crops — already on the server, do not re-upload.
+- **cupy on nodeasb01 does NOT work** (no usable CUDA driver →
+  `cudaErrorInsufficientDriver`); the installed cupy-cuda12x only runs on
+  nodeasb01g. Confirm with `ssh nodeasb01g '.venv/bin/python -c "import cupy;
+  cupy.zeros(1)"'` before relying on it.
 - **Disks:** `/` is nearly full (~28 G) — never build/install/work there.
   Use `/asbdata` or `/home`. venv: `<repo>/.venv` (python 3.14,
   numpy/scipy/tifffile/matplotlib present).
@@ -106,6 +188,13 @@ derivation/probe scripts (seconds-scale).
   use a pattern that can't self-match (e.g. `chain_allrod[s]`);
   (2) buffered stdout stays empty until the process exits — put a
   heartbeat in the script or `python -u` if you need progress.
+- **BLAS oversubscription (2026-11-17):** every fit process spawns up to
+  `nproc` OpenBLAS threads for its NNLS calls — running several fits
+  concurrently thrashes the node (measured load 162 on 128 cores, fits
+  ~2× slower). For batched region runs pin
+  `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1` per process; parallelism
+  belongs at the region level (or inside the fitter via
+  `FitInput3D.n_workers`), not inside BLAS.
 - **Record the commit** the run used (`git rev-parse --short HEAD` into the
   run log) so results stay reproducible.
 

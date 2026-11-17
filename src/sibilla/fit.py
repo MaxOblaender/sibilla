@@ -4,7 +4,7 @@ Design (ensemble principle):
 
 - OUTER: nonlinear least squares over the 4 shared Zernike coefficients
   (Z5, Z6, Z7, Z8) using `scipy.optimize.least_squares` (numerical
-  Jacobian), bounds ±0.5 RMS waves, multi-start (zero + k random).
+  Jacobian), bounds ±coeff_bound RMS waves (default 0.5), multi-start (zero + k random).
 - INNER (given a PSF candidate): per-segment amplitudes (one scalar per
   tubule) and ONE shared background, solved exactly by non-negative
   least squares (`scipy.optimize.nnls`) — variable projection: for a
@@ -31,6 +31,8 @@ diameter, skeleton, z-planes, modes, photon scale, B_nom).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Sequence
 
 import numpy as np
@@ -41,6 +43,7 @@ from .defaults import REAL_MODES, Z_CANDIDATE_GRID_UM, Z_OFFSET_GRID_NM
 from .forward import FastBlur, convolve_plane, cyclic3d, psf3d_cyclic
 from .psf import PupilConfig, build_psf_stack
 from .scene import render_tubule_unit
+from scipy import fft as sp_fft
 
 # Shared z-offset nuisance grid (defaults.py is the single source of truth;
 # a module-level tuple is safe as an immutable dataclass default).
@@ -62,6 +65,7 @@ class FitInput:
     loss: str = "linear"                    # "linear" | "soft_l1"
     n_multi_start: int = 4                  # random starts beyond the zero start
     start_range: float = 0.2                # random starts uniform in ±start_range
+    coeff_bound: float = 0.5                # |Z| ≤ bound waves (default ±0.5)
     max_nfev: int = 200
     rng_seed: int = 0
     supersample: int = 8                    # scene supersampling (for O_s render)
@@ -283,7 +287,7 @@ def fit(fit_in: FitInput) -> FitResult:
     masks = _build_roi_masks(fit_in.skeleton, fit_in.data.shape[1:],
                              fit_in.roi_radius_um, config.pixel_size)
     npar = len(modes)
-    bounds = (-0.5, 0.5)
+    bounds = (-fit_in.coeff_bound, fit_in.coeff_bound)
 
     rng = np.random.default_rng(fit_in.rng_seed)
     starts = [np.zeros(npar)]
@@ -367,10 +371,29 @@ class FitInput3D:
     loss: str = "linear"
     n_multi_start: int = 1          # smooth 4-param problem; zero start only
     start_range: float = 0.2
+    coeff_bound: float = 0.5        # |Z| ≤ bound waves (default ±0.5 pinned)
     max_nfev: int = 200
     rng_seed: int = 0
     n_cd_sweeps: int = 2
     n_outer_sweeps: int = 3        # alternating (c | z) block iterations
+    bank_policy: str = "cluster"   # "cluster" (default since 2026-11-17: gate
+                                   #   3 real + 11 synthetic PASS, plan §4.3)
+                                   # "full_box" = legacy bit-exact path
+    z_phase_ramp: bool = False     # O2: z-candidates via FFT phase ramp
+                                   # (cluster sub-box path only; flip after gate)
+    n_workers: int = 0             # O3: bank conv threads — 0 = auto
+                                   # (cpu_count, capped at task count; on a
+                                   # 1-core machine this resolves to the
+                                   # serial path). Default auto since
+                                   # 2026-11-17: e2e gate 3/3 PASS, bitwise
+                                   # identical (D 2.05x, E 2.04x, T 3.19x);
+                                   # n_workers=1 forces the legacy serial
+                                   # bank for reproducibility anchoring.
+    initial_coeffs: Sequence[float] | None = None   # O4: warm start — replaces
+                                   # the zero start; combine with
+                                   # n_multi_start=0 for a single-start fit
+                                   # (tiled-field-scan: seed from the nearest
+                                   # fitted region, plan §O4)
 
 
 def _capsule_objects(fit_in: "FitInput3D", z_off_plane: np.ndarray
@@ -437,6 +460,237 @@ def _blur_columns(fit_in: "FitInput3D", objs: list[np.ndarray],
     return model
 
 
+def _crop_cyclic(arr: np.ndarray, half: int) -> np.ndarray:
+    """Cyclic center-crop of a zero-centered kernel to ±half around index 0.
+
+    Keeps rows/cols [0..half] ∪ [G−half..G−1] — the same kernel VALUES at the
+    same cyclic displacements, so cropped[d] == arr[d] for every |d| ≤ half.
+    The PSF array must be cropped, NEVER rebuilt at a smaller grid size: the
+    PSF build is grid-size dependent (measured ~1e-3 relative plateau,
+    plans/fit-speedups.md §4.1).
+    """
+    g = arr.shape[-1]
+    if half < 0 or 2 * half + 1 > g:
+        raise ValueError(f"crop half={half} invalid for grid {g}")
+    sel = np.concatenate([np.arange(0, half + 1), np.arange(g - half, g)])
+    return arr[..., sel, :][..., :, sel]
+
+
+def _kernel_reach_px(psf: np.ndarray, q: float = 0.99,
+                     guard: int = 4) -> int:
+    """Smallest radius (px) holding fraction `q` of EVERY plane's energy.
+
+    The PSF volume's outer planes are strongly defocused and broad — the
+    measured 99 %-energy radius at ±6 µm volume defocus is ~129 px
+    (plans/fit-speedups.md §4.1). Used as the rod-clustering reach: rods
+    farther apart than this contribute only sub-percent tail entries to each
+    other's ROI pixels.
+    """
+    nz, m, n = psf.shape
+    dy = np.minimum(np.arange(m), m - np.arange(m)).astype(float)[:, None]
+    dx = np.minimum(np.arange(n), n - np.arange(n)).astype(float)[None, :]
+    r = np.rint(np.sqrt(dy * dy + dx * dx)).astype(int)
+    nbins = int(r.max()) + 1
+    flat = r.ravel()
+    cum = np.empty((nz, nbins))
+    for k in range(nz):
+        cum[k] = np.cumsum(np.bincount(flat, weights=psf[k].ravel(),
+                                       minlength=nbins))
+    total = cum[:, -1]
+    total[total == 0] = 1.0
+    frac = cum / total[:, None]
+    reached = (frac >= q).any(axis=1)
+    if not reached.any():
+        return nbins - 1 + guard
+    return int(np.argmax(frac >= q, axis=1)[reached].max()) + guard
+
+
+def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
+                         zcand_int: Sequence[int], idx: np.ndarray,
+                         idx_per_rod: Sequence[np.ndarray] | None = None,
+                         policy: str = "full_box",
+                         kernel_reach_px: int | None = None,
+                         z_phase_ramp: bool = False,
+                         n_workers: int = 1,
+                         ) -> list[list[np.ndarray]]:
+    """Blurred-column bank: bank[s][i] = (nz, len(idx)) for rod s, candidate i.
+
+    policy
+      "full_box" — legacy: full-box ``cyclic3d`` per (rod, candidate);
+          bit-identical to the pre-O1 loop.
+      "cluster"  — O1 (plans/fit-speedups.md §4): rods are grouped into
+          clusters whose ROI/support regions come within ``kernel_reach_px``
+          of each other; each cluster is convolved on its own square sub-box
+          with the full-box PSF array cyclic-cropped (kernel values
+          bit-identical, z axis kept full). Within a cluster the columns
+          match "full_box" to FFT roundoff (~1e-15, measured), including for
+          close rod pairs with overlapping ROIs. Entries at OTHER clusters'
+          ROI pixels are ZERO — a documented model decision, gated at fit
+          level (max |ΔZ| < 0.01 waves, plan §4.3): for rods separated by
+          more than half the box, the legacy full-box value there is itself
+          a cyclic-wrap artifact.
+
+    ``kernel_reach_px`` overrides the automatic PSF-derived reach (tests).
+    """
+    nz = psf.shape[0]
+    nseg = len(objs)
+    L = len(idx)
+
+    if policy == "full_box":
+        bank: list[list[np.ndarray]] = []
+        for o in objs:
+            cols = []
+            for dz in zcand_int:
+                oc = o if dz == 0 else np.roll(o, dz, axis=0)
+                cols.append(cyclic3d(oc, psf).reshape(nz, -1)[:, idx])
+            bank.append(cols)
+        return bank
+
+    if policy != "cluster":
+        raise ValueError(f"unknown bank_policy {policy!r}")
+    if idx_per_rod is None:
+        raise ValueError("cluster policy requires idx_per_rod (per-rod ROI "
+                         "pixel ids, global y*n+x)")
+    m, n = psf.shape[1], psf.shape[2]
+
+    # --- per-rod geometry: ROI centroid/radius + support-bbox radius -------
+    cents, roi_r, sup_r = [], [], []
+    for o, ids in zip(objs, idx_per_rod):
+        ys, xs = ids // n, ids % n
+        cy, cx = float(ys.mean()), float(xs.mean())
+        cents.append((cy, cx))
+        roi_r.append(float(np.sqrt((ys - cy) ** 2 + (xs - cx) ** 2).max()))
+        occ = o.any(axis=0)
+        ys2, xs2 = np.where(occ)
+        corners = ((ys2.min(), xs2.min()), (ys2.min(), xs2.max()),
+                   (ys2.max(), xs2.min()), (ys2.max(), xs2.max()))
+        sup_r.append(max(float(np.hypot(a - cy, b - cx)) for a, b in corners))
+
+    # --- clustering: union-find over generous reach circles ----------------
+    reach = (int(kernel_reach_px) if kernel_reach_px is not None
+             else _kernel_reach_px(psf))
+    parent = list(range(nseg))
+
+    def _find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for s in range(nseg):
+        for t in range(s + 1, nseg):
+            d = float(np.hypot(cents[s][0] - cents[t][0],
+                               cents[s][1] - cents[t][1]))
+            if d <= reach + roi_r[s] + sup_r[s] + roi_r[t] + sup_r[t]:
+                parent[_find(s)] = _find(t)
+    groups: dict[int, list[int]] = {}
+    for s in range(nseg):
+        groups.setdefault(_find(s), []).append(s)
+
+    # --- per-cluster convolution as (job, s, i) tasks (O3) ------------------
+    # Every bank slot is written by exactly ONE task; tasks read shared
+    # read-only arrays -> execution order is irrelevant, so thread-parallel
+    # results are BITWISE identical to the serial ones (pocketfft releases
+    # the GIL; no cross-task reduction exists).
+    bank: list[list[np.ndarray | None]] = [[None] * len(zcand_int)
+                                           for _ in range(nseg)]
+    jobs: list[dict] = []
+    tasks: list[tuple[int, int, int]] = []      # (job, s, i)
+
+    for members in groups.values():
+        gids = np.unique(np.concatenate([idx_per_rod[s] for s in members]))
+        gys, gxs = gids // n, gids % n
+        cy, cx = float(gys.mean()), float(gxs.mean())
+        # half must cover every (ROI pixel, support voxel) displacement pair
+        # within the cluster: max ROI distance + max support distance + guard
+        d_roi = max(float(np.sqrt((ys - cy) ** 2 + (xs - cx) ** 2).max())
+                    for s in members
+                    for ys, xs in [(idx_per_rod[s] // n, idx_per_rod[s] % n)])
+        occs = [np.where(objs[s].any(axis=0)) for s in members]
+        d_sup = max(max(float(np.hypot(a - cy, b - cx))
+                        for a, b in ((o[0].min(), o[1].min()),
+                                     (o[0].min(), o[1].max()),
+                                     (o[0].max(), o[1].min()),
+                                     (o[0].max(), o[1].max())))
+                    for o in occs)
+        half = int(np.ceil(d_roi + d_sup)) + 4
+        side = 2 * half + 1
+
+        def _full_job():
+            jobs.append({"kind": "full"})
+            j = len(jobs) - 1
+            tasks.extend((j, s, i) for s in members
+                         for i in range(len(zcand_int)))
+
+        if side >= min(m, n):
+            # cluster spans the box: full-box conv (no win, identical math)
+            _full_job()
+            continue
+
+        y0 = int(min(max(0, np.floor(cy - half)), m - side))
+        x0 = int(min(max(0, np.floor(cx - half)), n - side))
+        y1, x1 = y0 + side, x0 + side
+        inside = ((gys >= y0) & (gys < y1) & (gxs >= x0) & (gxs < x1))
+        if not inside.all():            # safety net; half covers it by design
+            _full_job()
+            continue
+
+        psf_s = _crop_cyclic(psf, half)
+        f_p = sp_fft.fftn(psf_s)                  # once per cluster per eval
+        sub_pos = (gys - y0) * (x1 - x0) + (gxs - x0)
+        pos_all = np.searchsorted(idx, gids)
+        # O2 phase ramp (plans/fit-speedups.md): np.roll(o, dz, axis=0) has
+        # DFT exp(-2*pi*i*kz*dz/nz) * FFT(o) — exact identity, different
+        # rounding (~1e-15, gated). One forward FFT per rod instead of one
+        # per (rod x candidate). Roll and the xy-crop commute (roll acts on
+        # axis 0 only), so the ramp applies to the cropped object directly.
+        kz = np.fft.fftfreq(nz) * nz              # integer freq bins, shape (nz,)
+        phase = np.exp(-2j * np.pi * kz * np.asarray(zcand_int)[:, None]
+                       / nz)                      # (nzc, nz) complex128
+        # per-member crops (views) + (with the ramp) the once-per-rod
+        # forward FFT: precomputed SERIALLY here; worker tasks only READ.
+        crops, f_o0s = {}, {}
+        for s in members:
+            crops[s] = objs[s][:, y0:y1, x0:x1]
+            if z_phase_ramp:
+                f_o0s[s] = sp_fft.fftn(crops[s])
+        jobs.append({"kind": "sub", "f_p": f_p, "sub_pos": sub_pos,
+                     "pos_all": pos_all, "crops": crops, "f_o0s": f_o0s,
+                     "phase": phase})
+        j = len(jobs) - 1
+        tasks.extend((j, s, i) for s in members
+                     for i in range(len(zcand_int)))
+
+    def _run_one(task: tuple[int, int, int]) -> None:
+        j, s, i = task
+        dz = zcand_int[i]
+        job = jobs[j]
+        if job["kind"] == "full":
+            oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
+            bank[s][i] = cyclic3d(oc, psf).reshape(nz, -1)[:, idx]
+            return
+        if z_phase_ramp:
+            f_o = (job["f_o0s"][s] if dz == 0
+                   else job["f_o0s"][s] * job["phase"][i][:, None, None])
+        else:
+            oc = (job["crops"][s] if dz == 0
+                  else np.roll(job["crops"][s], dz, axis=0))
+            f_o = sp_fft.fftn(oc)
+        col = sp_fft.ifftn(f_o * job["f_p"]).real.reshape(nz, -1)
+        out = np.zeros((nz, L))
+        out[:, job["pos_all"]] = col[:, job["sub_pos"]]
+        bank[s][i] = out
+
+    nw = os.cpu_count() if n_workers == 0 else int(n_workers)
+    if nw <= 1 or len(tasks) <= 1:
+        for t_ in tasks:
+            _run_one(t_)
+    else:
+        with ThreadPoolExecutor(max_workers=min(nw, len(tasks))) as ex:
+            list(ex.map(_run_one, tasks))
+    return bank  # type: ignore[return-value]
+
+
 def fit_3d(fit_in: FitInput3D) -> FitResult:
     """Ensemble 3D fit (spec §3 fit.py row) — physically-correct depth model.
 
@@ -448,8 +702,8 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     equivalently defocusing its PSF by d_s·z_step — so candidate search is
     cheap (one NNLS on precomputed blurred columns per candidate).
 
-    OUTER: least_squares over the shared Zernike coeffs (bounds ±0.5,
-    multi-start). INNER: per-segment z-candidate coordinate descent +
+    OUTER: least_squares over the shared Zernike coeffs (bounds ±coeff_bound,
+    default 0.5 waves, multi-start). INNER: per-segment z-candidate coordinate descent +
     weighted per-plane-background NNLS (variable projection).
     """
     from .scene import CapsuleSpec, render_capsule_unit
@@ -464,10 +718,22 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     z_plane_int = np.array([int(round(z / z_step))
                             for z in fit_in.z_candidate_um])
     z_mid = int(np.argmin(np.abs(z_plane_int)))   # index of the 0-offset candidate
-    bounds = (-0.5, 0.5)
+    bounds = (-fit_in.coeff_bound, fit_in.coeff_bound)
     rng = np.random.default_rng(fit_in.rng_seed)
     npar = len(modes)
-    starts = [np.zeros(npar)]
+    # O4 warm start (plans/fit-speedups.md §O4): an explicitly provided
+    # initial coefficient vector REPLACES the zero start — the tiled-scan
+    # workflow seeds from the nearest fitted region and runs n_multi_start=0
+    # (a single, cheaper outer loop).
+    if fit_in.initial_coeffs is not None:
+        if len(fit_in.initial_coeffs) != npar:
+            raise ValueError(
+                f"initial_coeffs has {len(fit_in.initial_coeffs)} entries, "
+                f"expected {npar} for modes {list(modes)}")
+        starts = [np.clip(np.asarray(fit_in.initial_coeffs, dtype=float),
+                          *bounds)]
+    else:
+        starts = [np.zeros(npar)]
     starts += [rng.uniform(-fit_in.start_range, fit_in.start_range, npar)
                for _ in range(fit_in.n_multi_start)]
 
@@ -479,12 +745,16 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     # ROI pixel indices (shared across all evaluations)
     masks = _build_roi_masks(fit_in.skeleton[:, [0, 1, 3, 4]], (m, n),
                              fit_in.roi_radius_um, config.pixel_size)
-    idx_list = []
+    idx_per_rod = []
     for mask in masks:
         ys, xs = np.where(mask)
-        idx_list.append(ys * n + xs)
-    idx = (np.unique(np.concatenate(idx_list)) if idx_list
+        idx_per_rod.append(ys * n + xs)
+    idx = (np.unique(np.concatenate(idx_per_rod)) if idx_per_rod
            else np.array([0]))
+    # Capsule objects are PSF- and policy-independent: render ONCE (the old
+    # code re-rendered them on every bank call — bit-identical, just slower).
+    objs = [render_capsule_unit(seg[0], seg[1], seg[2], seg[3], seg[4],
+                                seg[5], spec) for seg in fit_in.skeleton]
     L = len(idx)
     plane_off = (np.arange(nz) * m * n)[:, None]
     flat = (idx[None, :] + plane_off).ravel()
@@ -495,24 +765,20 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     def blurred_bank(coeffs_vec: np.ndarray) -> list[np.ndarray]:
         """For each segment and each z-candidate, the blurred (nz,L) column.
 
-        Cost control: 3D cyclic convolution per segment per candidate (the
-        plan's "precompute per-(segment × z-candidate) blurred stacks once").
+        Delegates to `blurred_bank_columns` (plans/fit-speedups.md §4):
+        policy "full_box" is the legacy full-box loop (bit-identical);
+        "cluster" convolves each rod cluster on its own sub-box with the
+        cyclic-cropped PSF array (O1, measured ~9x on the bank).
         """
         coeffs = {int(j): float(c) for j, c in zip(modes, coeffs_vec)}
         psf = psf3d_cyclic(config, coeffs, nz, z_step,
                            model=fit_in.psf_model,
                            lambda_exc_um=fit_in.lambda_exc_nm / 1000.0)
-        bank: list[np.ndarray] = []
-        for s, seg in enumerate(fit_in.skeleton):
-            obj = render_capsule_unit(seg[0], seg[1], seg[2],
-                                      seg[3], seg[4], seg[5], spec)
-            cols = []
-            for dz in z_plane_int:
-                o = obj if dz == 0 else np.roll(obj, dz, axis=0)
-                col = cyclic3d(o, psf).reshape(nz, -1)[:, idx]
-                cols.append(col)
-            bank.append(cols)
-        return bank
+        return blurred_bank_columns(objs, psf, z_plane_int, idx,
+                                    idx_per_rod=idx_per_rod,
+                                    policy=fit_in.bank_policy,
+                                    z_phase_ramp=fit_in.z_phase_ramp,
+                                    n_workers=fit_in.n_workers)
 
     def solve_at(bank: list[np.ndarray], z_sel: np.ndarray):
         """Weighted per-plane-bg NNLS with column s = bank[s][z_sel[s]].
@@ -681,7 +947,8 @@ def fit_from_real_files(stack: np.ndarray, meta: dict,
         modes=tuple(meta.get("modes", REAL_MODES)),
         roi_radius_um=float(meta.get("roi_radius_um", 1.5)),
         z_candidate_um=tuple(meta.get("z_candidate_um",
-                                      Z_CANDIDATE_GRID_UM)),
+                                       Z_CANDIDATE_GRID_UM)),
+        coeff_bound=float(meta.get("coeff_bound", 0.5)),
         max_nfev=max_nfev,
     )
     return fit_3d(fit_in)

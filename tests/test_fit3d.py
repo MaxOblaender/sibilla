@@ -327,3 +327,63 @@ class TestAlternatingOuterLoop:
         assert res.coeffs.get(6, 0.0) != 0.0, (
             "optimizer returned the start point — least_squares never ran "
             f"or never moved (coeffs={res.coeffs})")
+
+
+class TestCoeffBound:
+    """2026-11-03 field-test follow-up: real-data fits pinned at the
+    hardcoded ±0.5 bound. The bound is now a FitInput3D field
+    (`coeff_bound`, default 0.5 — so all existing tests keep pinning the
+    physics conventions). This guard: a 0.7-wave aberration must PIN at the
+    default ±0.5 (lower bound only) but RECOVER when the bound is widened."""
+
+    @staticmethod
+    def _big_aberration_data(seed=3):
+        from sibilla.forward import cyclic3d, psf3d_cyclic
+        from sibilla.scene import CapsuleSpec, generate_capsule_scene
+
+        fov, nz = 64, 9
+        spec = CapsuleSpec(fov_px_y=fov, fov_px_x=fov, n_planes=nz,
+                           pixel_size_um=0.1135, z_step_um=0.5,
+                           diameter_um=0.65, aa_width_px=1.0)
+        scene = generate_capsule_scene(spec, seed=seed, n_segments=4,
+                                       length_range_um=(1.0, 1.5),
+                                       z_center_range_um=(-0.5, 0.5),
+                                       max_tilt_deg=0.0)
+        cfg = real_pupil_config(fov)
+        psf = psf3d_cyclic(cfg, {6: 0.7}, nz, 0.5)
+        rng = np.random.default_rng(seed + 7)
+        data = np.full((nz, fov, fov), 250.0)
+        for obj in scene.objects:
+            data += 4500.0 * cyclic3d(obj, psf) / obj.max()
+        data = rng.poisson(data).astype(np.float64)
+        z_planes = (np.arange(nz) - (nz - 1) / 2) * 0.5
+        return data, cfg, scene, z_planes
+
+    def test_default_bound_pins(self):
+        from sibilla.fit import FitInput3D, fit_3d
+
+        data, cfg, scene, z_planes = self._big_aberration_data()
+        fit_in = FitInput3D(data=data, config=cfg, skeleton=scene.segments,
+                            z_planes_um=z_planes, nominal_budget=4500.0,
+                            fluorescent_diameter_um=0.65,
+                            z_candidate_um=(-1.0, -0.5, 0.0, 0.5, 1.0),
+                            n_multi_start=0, max_nfev=60)
+        res = fit_3d(fit_in)
+        z6 = res.coeffs.get(6, 0.0)
+        # data wants 0.7 -> optimizer pushes to the default ±0.5 wall
+        assert abs(z6) >= 0.5 - 1e-9, res.coeffs
+
+    def test_wider_bound_recovers(self):
+        from sibilla.fit import FitInput3D, fit_3d
+
+        data, cfg, scene, z_planes = self._big_aberration_data()
+        fit_in = FitInput3D(data=data, config=cfg, skeleton=scene.segments,
+                            z_planes_um=z_planes, nominal_budget=4500.0,
+                            fluorescent_diameter_um=0.65,
+                            z_candidate_um=(-1.0, -0.5, 0.0, 0.5, 1.0),
+                            coeff_bound=1.5,
+                            n_multi_start=0, max_nfev=120)
+        res = fit_3d(fit_in)
+        z6 = res.coeffs.get(6, 0.0)
+        assert abs(z6 - 0.7) < 0.03, res.coeffs
+        assert abs(z6) < 1.5 - 1e-9, "still pinned at the wider bound"

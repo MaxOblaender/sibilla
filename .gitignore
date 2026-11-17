@@ -29,4 +29,12 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
+
+!/plans/fit-speedups.md
 !/plans/fix-ensemble-pinned-crops.md
+!/plans/z-range-derivation.md
+!/plans/tiled-field-scan.md
+# one-set vs Z(x,y)-map decision docs (tracked on this branch)
+!/FIELDTEST_one_set_vs_Zmap.md
+!/SUPERVISOR_one_set_vs_Zmap.md
+!/FIELDTEST_results_one_set_vs_Zmap.md
