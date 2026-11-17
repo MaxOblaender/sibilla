@@ -134,10 +134,14 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   fallback on tight ones (gate: 3 real + 11 synthetic, `plans/fit-speedups.md`
   §4). Legacy exact path: `FitInput3D(bank_policy="full_box")`. NOTE: server
   copies inherit the default only after the next rsync. O2 (phase-ramp
-  z-candidates) is implemented behind `FitInput3D.z_phase_ramp` (default
-  False — measured ≤1.3× bank win on real regions; plan §O2). **Heavy test/
-  fit/bench runs go to nodeasb01g, not the laptop** (load ~18 desktop; the
-  same suites run ~5× faster there) — established convention 2026-11-17.
+  z-candidates) implemented behind `FitInput3D.z_phase_ramp` (default False
+  — measured ≤1.3× bank win on real regions; plan §O2). **O3 parallel bank
+  is the DEFAULT** (`FitInput3D.n_workers = 0` = auto: e2e gate 3/3 PASS,
+  bitwise identical, D 2.05×/E 2.04×/T 3.19× end-to-end; `n_workers=1` =
+  serial anchor). O4 warm start via `FitInput3D.initial_coeffs`. **Heavy
+  test/fit/bench runs go to nodeasb01g, not the laptop** (load ~18 desktop;
+  the same suites run ~5× faster there) — established convention
+  2026-11-17.
 
 ## Compute servers (prefer these for anything heavy)
 

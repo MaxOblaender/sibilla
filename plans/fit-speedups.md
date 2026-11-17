@@ -8,9 +8,10 @@ sub-box runs, 3 fallbacks, 1 corner-clamped sub-box; max |ΔZ| ≤ 4.6e-10).
 Legacy path stays available via `bank_policy="full_box"` (bit-identical).
 **O2 implemented** behind `FitInput3D.z_phase_ramp` (default False — bank
 win measured ≤1.3× on real regions, not the default; see §O2).
-**O3 implemented** behind `FitInput3D.n_workers` (default 1 = serial;
-0 = auto — bitwise-deterministic, 6–7.5× on the real-region banks;
-end-to-end fit A/B pending before any default flip; see §O3).
+**O3 is the DEFAULT** (`FitInput3D.n_workers = 0` auto since 2026-11-17):
+e2e gate 3/3 PASS, results bitwise identical (D 2.05×, E 2.04×, T 3.19×
+end-to-end); `n_workers=1` = serial reproducibility anchor (see §O3).
+**O4 implemented**: `FitInput3D.initial_coeffs` warm start (see §O4).
 O2–O5 not implemented. Measured numbers: 2026-10-30 (real channel timings),
 2026-11-16/17 (probe, nodeasb01g benchmark, gate, synth batch).
 
@@ -196,9 +197,27 @@ warm-start would cut their count. **Cost correction (2026-11-17, read of
 (`residuals()` → `blurred_bank(c)`), so a fit spends ~(n_nfev + n_outer_sweeps
 + CD + final) bank calls — the bank is the DOMINANT end-to-end share, not
 ~25 %. The e2e gate therefore measures a large expected speedup, and the
-bank bench above is a floor, not an estimate. Default stays 1 (serial)
-until the e2e A/B on real regions confirms bitwise-identical results AND
-the measured gain.
+bank bench above is a floor, not an estimate.
+
+**End-to-end gate (2026-11-17, nodeasb01g, 7-candidate recipe, real
+regions, `scripts_extras/gate_o3_e2e.py`): 3/3 PASS, results bitwise
+identical (coefficients, z decisions, cost):**
+
+| region | serial | auto | e2e speedup |
+|---|---|---|---|
+| D_clean | 44.25 min | 21.59 min | **2.05×** |
+| E_clean | 35.4 min | 17.36 min | **2.04×** |
+| T (welded fallback) | 52.73 min | 16.54 min | **3.19×** |
+
+**DEFAULT FLIPPED to `n_workers=0` (auto)** — the machine-adaptive default:
+128-core server → full parallelism; 4-core laptop → 4 threads; 1-core →
+resolves to the serial branch. `n_workers=1` remains the explicit
+reproducibility anchor. Amdahl note: the e2e gain (2–3.2×) is below the
+bank gain (6–7.5×) because the serial remainder is dominated by the PSF
+volume build (~2.7 s/call at 481², also rebuilt per nfev) — quantified by
+`scripts_extras/cost_breakdown_D.py`; that build is the next algorithmic
+lever (O5-GPU batched build territory) before "only the GPU is left" is
+fully honest.
 
 ### O4 — Coarser search / cheaper eval, as flags  *(rescoped 2026-11-17 after O1–O3)*
 

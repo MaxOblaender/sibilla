@@ -381,10 +381,14 @@ class FitInput3D:
                                    # "full_box" = legacy bit-exact path
     z_phase_ramp: bool = False     # O2: z-candidates via FFT phase ramp
                                    # (cluster sub-box path only; flip after gate)
-    n_workers: int = 1             # O3: bank conv threads (1 = serial default;
-                                   # 0 = cpu_count, capped; threads safe:
-                                   # pocketfft releases the GIL, and every
-                                   # bank slot is written exactly once)
+    n_workers: int = 0             # O3: bank conv threads — 0 = auto
+                                   # (cpu_count, capped at task count; on a
+                                   # 1-core machine this resolves to the
+                                   # serial path). Default auto since
+                                   # 2026-11-17: e2e gate 3/3 PASS, bitwise
+                                   # identical (D 2.05x, E 2.04x, T 3.19x);
+                                   # n_workers=1 forces the legacy serial
+                                   # bank for reproducibility anchoring.
     initial_coeffs: Sequence[float] | None = None   # O4: warm start — replaces
                                    # the zero start; combine with
                                    # n_multi_start=0 for a single-start fit
