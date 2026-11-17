@@ -49,6 +49,20 @@ Verified rod-by-rod on all three regions: for every interior rod
 `stored_cz = true_cz − (zc − 3)` holds exactly, and `true_cz` (recomputed)
 matches the full-crop axial-profile argmax within ±2 planes for 23/27 rods.
 
+> **Reading note — `true_cz` is NOT the bacterium's physical depth**
+> (added 2026-11-17, see `PROJECT_DOCUMENTATION.md` §3.3.1). The exact
+> equality above is the tell: a physical measurement scatters, an algebraic
+> identity identifies a **coordinate-frame bug**. `true_cz` is this
+> pipeline's *own* depth estimate recomputed from the uncorrupted full-crop
+> frame (axial-profile argmax) — i.e. what the estimator would have said had
+> the window not shifted it. Nothing in this document establishes the rods'
+> absolute depth, and nothing can: the image constrains only
+> `Δ = z_rod − z_focal` (Z4 pinned at 0 by convention). The `z − (zc − 3)`
+> correction is still fully valid for its purpose — a bias between two
+> computations of the same quantity — and "up to ~9 µm of unmodeled
+> defocus" remains the correct statement. What does *not* follow is any
+> claim about physical depth accuracy.
+
 ### Impact — retracted / revised conclusions
 
 - **All 15 field-test fits, and the first diagnostic launch, are
