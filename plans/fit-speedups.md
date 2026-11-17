@@ -133,8 +133,17 @@ transform is a small fraction of bank cost at these box sizes, and the bank
 is only part of the fit (E: ~25 % of 16.6 min). End-to-end expectation:
 ~3 % at E-like geometries, ~0 at T-like. **Default stays `full_box`→`cluster`
 roll path; the flag remains for very large boxes where it should pay more.**
-Fit-level gates (11 synthetic + 3 real, same discipline as O1): running
-2026-11-17, results to follow.
+Fit-level gates (11 synthetic **PASS** + 3 real, same discipline as O1):
+the synthetic gate passed 11/11 on nodeasb01g. The real-region gate was
+**aborted 2026-11-17 after its first arm**: at the 7-candidate recipe each
+arm costs ~7× the O1 gate's fixed-z arms (T roll arm: **88 min**), making
+the full gate a ~6–8 h job — and it is confirmatory only, since the default
+(flat off) was already fixed by the bank benchmark (≤1.3×) and the
+bank-level real-region proof (columns match to 4e-16 on T/D/E). The one
+completed arm is preserved (`gate_o2_aborted_T_roll_88min.log`): T
+cluster-roll at 7 candidates gave Z=[0.167, −0.141, 0.030, 0.004] — note
+this legitimately differs from the fixed-z recipe (0.109/−0.120): more
+z-freedom, different optimum, not a discrepancy.
 
 **Per-stage breakdown (2026-11-17, `scripts_extras/o2_breakdown_T.py`) — why
 T only gained 1.03×:** T's 8 rods weld into **6 rods + 2 rods** (transitive

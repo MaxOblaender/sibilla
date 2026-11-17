@@ -184,6 +184,13 @@ nodeasb01g is visible on nodeasb01 and vice versa.
   use a pattern that can't self-match (e.g. `chain_allrod[s]`);
   (2) buffered stdout stays empty until the process exits — put a
   heartbeat in the script or `python -u` if you need progress.
+- **BLAS oversubscription (2026-11-17):** every fit process spawns up to
+  `nproc` OpenBLAS threads for its NNLS calls — running several fits
+  concurrently thrashes the node (measured load 162 on 128 cores, fits
+  ~2× slower). For batched region runs pin
+  `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1` per process; parallelism
+  belongs at the region level (or inside the fitter via
+  `FitInput3D.n_workers`), not inside BLAS.
 - **Record the commit** the run used (`git rev-parse --short HEAD` into the
   run log) so results stay reproducible.
 
