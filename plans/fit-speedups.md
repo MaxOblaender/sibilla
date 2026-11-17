@@ -6,6 +6,8 @@ E_clean, max |ΔZ| ≤ 1.9e-9, identical decisions, full_box arms reproduce the
 recorded campaign coefficients) + 11 synthetic fit-level A/Bs (7 real
 sub-box runs, 3 fallbacks, 1 corner-clamped sub-box; max |ΔZ| ≤ 4.6e-10).
 Legacy path stays available via `bank_policy="full_box"` (bit-identical).
+**O2 implemented** behind `FitInput3D.z_phase_ramp` (default False — bank
+win measured ≤1.3× on real regions, not the default; see §O2).
 O2–O5 not implemented. Measured numbers: 2026-10-30 (real channel timings),
 2026-11-16/17 (probe, nodeasb01g benchmark, gate, synth batch).
 
@@ -104,12 +106,32 @@ columns back. Cost becomes ∝ Σ rod-support volume instead of nseg × box volu
 - **Does NOT change statistics** — unmarked neighbour bacteria still bias the
   fit; this is a speed fix, not a correctness fix.
 
-### O2 — z-candidates from ONE FFT via phase ramp  *(~5×, ~30 lines, low risk)*
+### O2 — z-candidates from ONE FFT via phase ramp  *(implemented 2026-11-17, measured modest)*
 
-`np.roll(obj, dz)` per candidate currently costs a full 3D FFT each time. A
-z-shift is a phase ramp in Fourier space: FFT the object **once**, multiply by
-`exp(2πi k_z dz / N_z)`, IFFT per candidate. Kills the `nzcand` factor.
-Gate: equivalence vs the `np.roll` path.
+`np.roll(obj, dz)` per candidate costs a full 3D FFT each time. A z-shift is a
+phase ramp in Fourier space: FFT the object **once**, multiply by
+`exp(-2πi k_z dz / N_z)` (sign follows numpy's DFT convention — the plan's
+original `+` was wrong; verified in `tests/test_fit_bank_policies.py`),
+IFFT per candidate. Kills the `nzcand` object-FFT factor.
+Flag: `FitInput3D.z_phase_ramp` (default **False** — see below), applies to
+the cluster sub-box path only (full_box + single-cluster fallback untouched;
+roll commutes with the xy-crop).
+
+**Measured (2026-11-17, nodeasb01g, bank-level, 7 candidates, real regions):**
+
+| region | roll bank | ramp bank | speedup | max rel diff |
+|---|---|---|---|---|
+| T (8 rods, 25×392²) | 7.51 s | 7.30 s | 1.03× | 4e-16 |
+| D_clean (5 rods, 32×300², fallback) | 3.56 s | 3.55 s | 1.00× | 0 (ramp not applied) |
+| E_clean (4 rods, 36×481²) | 3.79 s | 2.90 s | **1.31×** | 4e-16 |
+
+The win is at most ~1.3× on the bank — after O1, the per-candidate object
+transform is a small fraction of bank cost at these box sizes, and the bank
+is only part of the fit (E: ~25 % of 16.6 min). End-to-end expectation:
+~3 % at E-like geometries, ~0 at T-like. **Default stays `full_box`→`cluster`
+roll path; the flag remains for very large boxes where it should pay more.**
+Fit-level gates (11 synthetic + 3 real, same discipline as O1): running
+2026-11-17, results to follow.
 
 ### O3 — Parallelize  *(2–6× per core, ~20–50 lines, low risk)*
 

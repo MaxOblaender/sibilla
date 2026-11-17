@@ -377,6 +377,8 @@ class FitInput3D:
     bank_policy: str = "cluster"   # "cluster" (default since 2026-11-17: gate
                                    #   3 real + 11 synthetic PASS, plan §4.3)
                                    # "full_box" = legacy bit-exact path
+    z_phase_ramp: bool = False     # O2: z-candidates via FFT phase ramp
+                                   # (cluster sub-box path only; flip after gate)
 
 
 def _capsule_objects(fit_in: "FitInput3D", z_off_plane: np.ndarray
@@ -493,6 +495,7 @@ def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
                          idx_per_rod: Sequence[np.ndarray] | None = None,
                          policy: str = "full_box",
                          kernel_reach_px: int | None = None,
+                         z_phase_ramp: bool = False,
                          ) -> list[list[np.ndarray]]:
     """Blurred-column bank: bank[s][i] = (nz, len(idx)) for rod s, candidate i.
 
@@ -613,10 +616,23 @@ def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
         f_p = sp_fft.fftn(psf_s)                  # once per cluster per eval
         sub_pos = (gys - y0) * (x1 - x0) + (gxs - x0)
         pos_all = np.searchsorted(idx, gids)
+        # O2 phase ramp (plans/fit-speedups.md): np.roll(o, dz, axis=0) has
+        # DFT exp(-2*pi*i*kz*dz/nz) * FFT(o) — exact identity, different
+        # rounding (~1e-15, gated). One forward FFT per rod instead of one
+        # per (rod x candidate). Roll and the xy-crop commute (roll acts on
+        # axis 0 only), so the ramp applies to the cropped object directly.
+        kz = np.fft.fftfreq(nz) * nz              # integer freq bins, shape (nz,)
+        phase = np.exp(-2j * np.pi * kz * np.asarray(zcand_int)[:, None]
+                       / nz)                      # (nzc, nz) complex128
         for s in members:
+            f_o0 = (sp_fft.fftn(objs[s][:, y0:y1, x0:x1]) if z_phase_ramp
+                    else None)
             for i, dz in enumerate(zcand_int):
-                oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
-                f_o = sp_fft.fftn(oc[:, y0:y1, x0:x1])
+                if z_phase_ramp:
+                    f_o = f_o0 if dz == 0 else f_o0 * phase[i][:, None, None]
+                else:
+                    oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
+                    f_o = sp_fft.fftn(oc[:, y0:y1, x0:x1])
                 col = sp_fft.ifftn(f_o * f_p).real.reshape(nz, -1)
                 out = np.zeros((nz, L))
                 out[:, pos_all] = col[:, sub_pos]
@@ -697,7 +713,8 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
                            lambda_exc_um=fit_in.lambda_exc_nm / 1000.0)
         return blurred_bank_columns(objs, psf, z_plane_int, idx,
                                     idx_per_rod=idx_per_rod,
-                                    policy=fit_in.bank_policy)
+                                    policy=fit_in.bank_policy,
+                                    z_phase_ramp=fit_in.z_phase_ramp)
 
     def solve_at(bank: list[np.ndarray], z_sel: np.ndarray):
         """Weighted per-plane-bg NNLS with column s = bank[s][z_sel[s]].

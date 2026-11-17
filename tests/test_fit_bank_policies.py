@@ -129,6 +129,37 @@ class TestBankPolicies:
             assert np.abs(legacy[s][0][:, pos_t]).max() > 0.0, s
 
 
+class TestPhaseRampZCandidates:
+    """O2 (plans/fit-speedups.md): per-candidate np.roll along z == multiplying
+    the object's FFT by exp(-2*pi*i*kz*dz/nz) (exact identity, different
+    rounding). Saves the per-candidate object FFT: 1 forward FFT per rod
+    instead of n_candidates. Applies ONLY to the cluster sub-box path —
+    full_box and the single-cluster fallback stay roll-based (legacy anchors).
+    """
+
+    def test_phase_ramp_matches_roll_all_candidates(self):
+        fov, nz = 128, 15
+        psf = psf3d_cyclic(_config(fov), COEFFS, nz, 0.5, model="confocal")
+        objs, idx, idx_per_rod = _scene(fov)
+        # explicit candidate list: negatives, zero, non-grid magnitudes
+        zc = [-3, -2, -1, 0, 1, 2, 4]
+        roll = blurred_bank_columns(objs, psf, zc, idx, idx_per_rod,
+                                    policy="cluster", z_phase_ramp=False)
+        ramp = blurred_bank_columns(objs, psf, zc, idx, idx_per_rod,
+                                    policy="cluster", z_phase_ramp=True)
+        for s in range(len(objs)):
+            for i in range(len(zc)):
+                a, b = roll[s][i], ramp[s][i]
+                scale = max(np.abs(a).max(), 1e-30)
+                assert np.abs(a - b).max() / scale < 1e-9, (s, zc[i])
+
+    def test_phase_ramp_default_off(self):
+        """The flag defaults to False (legacy roll path) until gated."""
+        import inspect
+        sig = inspect.signature(blurred_bank_columns)
+        assert sig.parameters["z_phase_ramp"].default is False
+
+
 class TestFit3DBankPolicy:
     def test_cluster_policy_agrees_with_full_box(self):
         """End-to-end: same data, both policies, rods within one cluster ->
@@ -160,4 +191,36 @@ class TestFit3DBankPolicy:
         a, b = results["full_box"], results["cluster"]
         for mode in (5, 6, 7, 8):
             assert abs(a.coeffs.get(mode, 0.0) - b.coeffs.get(mode, 0.0)) < 1e-9
+        assert np.allclose(a.segment_z_um, b.segment_z_um)
+
+    def test_fit3d_phase_ramp_agrees_with_roll(self):
+        """End-to-end O2 gate: cluster path with the phase-ramp z-candidates
+        must give the same fit as the roll-based cluster path (default)."""
+        fov, nz = 96, 15
+        cfg = _config(fov)
+        psf = psf3d_cyclic(cfg, COEFFS, nz, 0.5, model="confocal")
+        spec = _spec(fov)
+        skel = np.array([[44, 48, 7, 60, 52, 7],
+                         [32, 60, 7, 46, 66, 7]], dtype=float)
+        objs = [render_capsule_unit(*s, spec) for s in skel]
+        rng = np.random.default_rng(7)
+        data = np.full((nz, fov, fov), 250.0)
+        for obj in objs:
+            data += 4500.0 * cyclic3d(obj, psf) / obj.max()
+        data = rng.poisson(data).astype(np.float64)
+        z_planes = (np.arange(nz) - (nz - 1) / 2) * 0.5
+
+        results = {}
+        for ramp in (False, True):
+            fit_in = FitInput3D(
+                data=data, config=cfg, skeleton=skel, z_planes_um=z_planes,
+                nominal_budget=4500.0, fluorescent_diameter_um=0.65,
+                z_candidate_um=Z_CANDIDATE_GRID_UM, psf_model="confocal",
+                n_multi_start=1, max_nfev=30, n_outer_sweeps=2,
+                bank_policy="cluster", z_phase_ramp=ramp,
+            )
+            results[ramp] = fit_3d(fit_in)
+        a, b = results[False], results[True]
+        for mode in (5, 6, 7, 8):
+            assert abs(a.coeffs[mode] - b.coeffs[mode]) < 1e-9, mode
         assert np.allclose(a.segment_z_um, b.segment_z_um)
