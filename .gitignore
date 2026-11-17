@@ -29,6 +29,7 @@ __pycache__/
 !/plans/
 plans/*
 !/plans/fit-speedups.md
+!/plans/fix-ensemble-pinned-crops.md
 !/plans/z-range-derivation.md
 !/plans/tiled-field-scan.md
 # one-set vs Z(x,y)-map decision docs (tracked on this branch)
