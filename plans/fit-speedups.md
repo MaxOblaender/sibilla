@@ -232,9 +232,11 @@ not assumed.
 - **Why not r_psf:** the kernel is never truncated. The full-box PSF array is
   *cyclic-cropped* to `±half` (rows/cols `[0..half] ∪ [G−half..G−1]`), which
   preserves the exact kernel values at every displacement the ROI pixels can
-  read. The PSF's 99.9 %-energy radius measured 129 px (14.6 µm, at ±6 µm
-  volume defocus — the outer planes of the PSF volume are very broad), but
-  that radius bounds only a possible future Z-crop, not the XY sub-box.
+  read. The PSF's 99 %-energy radius (corrected 2026-11-17 — the probe's
+  first radius metric broadcast silently to (m, n, n) and returned garbage
+  129 px) is **14 px (1.6 µm) at ±6 µm volume defocus, 24 px at ±10.5 µm**
+  (confocal, per-plane-renormalized) — it bounds only the rod-CLUSTERING
+  reach and a possible future Z-crop, not the XY sub-box half-width.
 - **Do NOT rebuild the PSF at sub-grid size.** The PSF build is grid-size
   dependent (pupil grid inscribed per `grid_size`): measured relative plateau
   ~1e-3 vs the full-box kernel, at every radius. Cyclic-cropping the full-box

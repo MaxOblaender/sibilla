@@ -41,6 +41,7 @@ from .defaults import REAL_MODES, Z_CANDIDATE_GRID_UM, Z_OFFSET_GRID_NM
 from .forward import FastBlur, convolve_plane, cyclic3d, psf3d_cyclic
 from .psf import PupilConfig, build_psf_stack
 from .scene import render_tubule_unit
+from scipy import fft as sp_fft
 
 # Shared z-offset nuisance grid (defaults.py is the single source of truth;
 # a module-level tuple is safe as an immutable dataclass default).
@@ -373,6 +374,7 @@ class FitInput3D:
     rng_seed: int = 0
     n_cd_sweeps: int = 2
     n_outer_sweeps: int = 3        # alternating (c | z) block iterations
+    bank_policy: str = "full_box"  # "full_box" (legacy) | "cluster" (O1, plan §4)
 
 
 def _capsule_objects(fit_in: "FitInput3D", z_off_plane: np.ndarray
@@ -439,6 +441,187 @@ def _blur_columns(fit_in: "FitInput3D", objs: list[np.ndarray],
     return model
 
 
+def _crop_cyclic(arr: np.ndarray, half: int) -> np.ndarray:
+    """Cyclic center-crop of a zero-centered kernel to ±half around index 0.
+
+    Keeps rows/cols [0..half] ∪ [G−half..G−1] — the same kernel VALUES at the
+    same cyclic displacements, so cropped[d] == arr[d] for every |d| ≤ half.
+    The PSF array must be cropped, NEVER rebuilt at a smaller grid size: the
+    PSF build is grid-size dependent (measured ~1e-3 relative plateau,
+    plans/fit-speedups.md §4.1).
+    """
+    g = arr.shape[-1]
+    if half < 0 or 2 * half + 1 > g:
+        raise ValueError(f"crop half={half} invalid for grid {g}")
+    sel = np.concatenate([np.arange(0, half + 1), np.arange(g - half, g)])
+    return arr[..., sel, :][..., :, sel]
+
+
+def _kernel_reach_px(psf: np.ndarray, q: float = 0.99,
+                     guard: int = 4) -> int:
+    """Smallest radius (px) holding fraction `q` of EVERY plane's energy.
+
+    The PSF volume's outer planes are strongly defocused and broad — the
+    measured 99 %-energy radius at ±6 µm volume defocus is ~129 px
+    (plans/fit-speedups.md §4.1). Used as the rod-clustering reach: rods
+    farther apart than this contribute only sub-percent tail entries to each
+    other's ROI pixels.
+    """
+    nz, m, n = psf.shape
+    dy = np.minimum(np.arange(m), m - np.arange(m)).astype(float)[:, None]
+    dx = np.minimum(np.arange(n), n - np.arange(n)).astype(float)[None, :]
+    r = np.rint(np.sqrt(dy * dy + dx * dx)).astype(int)
+    nbins = int(r.max()) + 1
+    flat = r.ravel()
+    cum = np.empty((nz, nbins))
+    for k in range(nz):
+        cum[k] = np.cumsum(np.bincount(flat, weights=psf[k].ravel(),
+                                       minlength=nbins))
+    total = cum[:, -1]
+    total[total == 0] = 1.0
+    frac = cum / total[:, None]
+    reached = (frac >= q).any(axis=1)
+    if not reached.any():
+        return nbins - 1 + guard
+    return int(np.argmax(frac >= q, axis=1)[reached].max()) + guard
+
+
+def blurred_bank_columns(objs: list[np.ndarray], psf: np.ndarray,
+                         zcand_int: Sequence[int], idx: np.ndarray,
+                         idx_per_rod: Sequence[np.ndarray] | None = None,
+                         policy: str = "full_box",
+                         kernel_reach_px: int | None = None,
+                         ) -> list[list[np.ndarray]]:
+    """Blurred-column bank: bank[s][i] = (nz, len(idx)) for rod s, candidate i.
+
+    policy
+      "full_box" — legacy: full-box ``cyclic3d`` per (rod, candidate);
+          bit-identical to the pre-O1 loop.
+      "cluster"  — O1 (plans/fit-speedups.md §4): rods are grouped into
+          clusters whose ROI/support regions come within ``kernel_reach_px``
+          of each other; each cluster is convolved on its own square sub-box
+          with the full-box PSF array cyclic-cropped (kernel values
+          bit-identical, z axis kept full). Within a cluster the columns
+          match "full_box" to FFT roundoff (~1e-15, measured), including for
+          close rod pairs with overlapping ROIs. Entries at OTHER clusters'
+          ROI pixels are ZERO — a documented model decision, gated at fit
+          level (max |ΔZ| < 0.01 waves, plan §4.3): for rods separated by
+          more than half the box, the legacy full-box value there is itself
+          a cyclic-wrap artifact.
+
+    ``kernel_reach_px`` overrides the automatic PSF-derived reach (tests).
+    """
+    nz = psf.shape[0]
+    nseg = len(objs)
+    L = len(idx)
+
+    if policy == "full_box":
+        bank: list[list[np.ndarray]] = []
+        for o in objs:
+            cols = []
+            for dz in zcand_int:
+                oc = o if dz == 0 else np.roll(o, dz, axis=0)
+                cols.append(cyclic3d(oc, psf).reshape(nz, -1)[:, idx])
+            bank.append(cols)
+        return bank
+
+    if policy != "cluster":
+        raise ValueError(f"unknown bank_policy {policy!r}")
+    if idx_per_rod is None:
+        raise ValueError("cluster policy requires idx_per_rod (per-rod ROI "
+                         "pixel ids, global y*n+x)")
+    m, n = psf.shape[1], psf.shape[2]
+
+    # --- per-rod geometry: ROI centroid/radius + support-bbox radius -------
+    cents, roi_r, sup_r = [], [], []
+    for o, ids in zip(objs, idx_per_rod):
+        ys, xs = ids // n, ids % n
+        cy, cx = float(ys.mean()), float(xs.mean())
+        cents.append((cy, cx))
+        roi_r.append(float(np.sqrt((ys - cy) ** 2 + (xs - cx) ** 2).max()))
+        occ = o.any(axis=0)
+        ys2, xs2 = np.where(occ)
+        corners = ((ys2.min(), xs2.min()), (ys2.min(), xs2.max()),
+                   (ys2.max(), xs2.min()), (ys2.max(), xs2.max()))
+        sup_r.append(max(float(np.hypot(a - cy, b - cx)) for a, b in corners))
+
+    # --- clustering: union-find over generous reach circles ----------------
+    reach = (int(kernel_reach_px) if kernel_reach_px is not None
+             else _kernel_reach_px(psf))
+    parent = list(range(nseg))
+
+    def _find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for s in range(nseg):
+        for t in range(s + 1, nseg):
+            d = float(np.hypot(cents[s][0] - cents[t][0],
+                               cents[s][1] - cents[t][1]))
+            if d <= reach + roi_r[s] + sup_r[s] + roi_r[t] + sup_r[t]:
+                parent[_find(s)] = _find(t)
+    groups: dict[int, list[int]] = {}
+    for s in range(nseg):
+        groups.setdefault(_find(s), []).append(s)
+
+    # --- per-cluster sub-box convolution ------------------------------------
+    bank: list[list[np.ndarray | None]] = [[None] * len(zcand_int)
+                                           for _ in range(nseg)]
+    for members in groups.values():
+        gids = np.unique(np.concatenate([idx_per_rod[s] for s in members]))
+        gys, gxs = gids // n, gids % n
+        cy, cx = float(gys.mean()), float(gxs.mean())
+        # half must cover every (ROI pixel, support voxel) displacement pair
+        # within the cluster: max ROI distance + max support distance + guard
+        d_roi = max(float(np.sqrt((ys - cy) ** 2 + (xs - cx) ** 2).max())
+                    for s in members
+                    for ys, xs in [(idx_per_rod[s] // n, idx_per_rod[s] % n)])
+        occs = [np.where(objs[s].any(axis=0)) for s in members]
+        d_sup = max(max(float(np.hypot(a - cy, b - cx))
+                        for a, b in ((o[0].min(), o[1].min()),
+                                     (o[0].min(), o[1].max()),
+                                     (o[0].max(), o[1].min()),
+                                     (o[0].max(), o[1].max())))
+                    for o in occs)
+        half = int(np.ceil(d_roi + d_sup)) + 4
+        side = 2 * half + 1
+
+        if side >= min(m, n):
+            # cluster spans the box: full-box conv (no win, identical math)
+            for s in members:
+                for i, dz in enumerate(zcand_int):
+                    oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
+                    bank[s][i] = cyclic3d(oc, psf).reshape(nz, -1)[:, idx]
+            continue
+
+        y0 = int(min(max(0, np.floor(cy - half)), m - side))
+        x0 = int(min(max(0, np.floor(cx - half)), n - side))
+        y1, x1 = y0 + side, x0 + side
+        inside = ((gys >= y0) & (gys < y1) & (gxs >= x0) & (gxs < x1))
+        if not inside.all():            # safety net; half covers it by design
+            for s in members:
+                for i, dz in enumerate(zcand_int):
+                    oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
+                    bank[s][i] = cyclic3d(oc, psf).reshape(nz, -1)[:, idx]
+            continue
+
+        psf_s = _crop_cyclic(psf, half)
+        f_p = sp_fft.fftn(psf_s)                  # once per cluster per eval
+        sub_pos = (gys - y0) * (x1 - x0) + (gxs - x0)
+        pos_all = np.searchsorted(idx, gids)
+        for s in members:
+            for i, dz in enumerate(zcand_int):
+                oc = objs[s] if dz == 0 else np.roll(objs[s], dz, axis=0)
+                f_o = sp_fft.fftn(oc[:, y0:y1, x0:x1])
+                col = sp_fft.ifftn(f_o * f_p).real.reshape(nz, -1)
+                out = np.zeros((nz, L))
+                out[:, pos_all] = col[:, sub_pos]
+                bank[s][i] = out
+    return bank  # type: ignore[return-value]
+
+
 def fit_3d(fit_in: FitInput3D) -> FitResult:
     """Ensemble 3D fit (spec §3 fit.py row) — physically-correct depth model.
 
@@ -481,12 +664,16 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     # ROI pixel indices (shared across all evaluations)
     masks = _build_roi_masks(fit_in.skeleton[:, [0, 1, 3, 4]], (m, n),
                              fit_in.roi_radius_um, config.pixel_size)
-    idx_list = []
+    idx_per_rod = []
     for mask in masks:
         ys, xs = np.where(mask)
-        idx_list.append(ys * n + xs)
-    idx = (np.unique(np.concatenate(idx_list)) if idx_list
+        idx_per_rod.append(ys * n + xs)
+    idx = (np.unique(np.concatenate(idx_per_rod)) if idx_per_rod
            else np.array([0]))
+    # Capsule objects are PSF- and policy-independent: render ONCE (the old
+    # code re-rendered them on every bank call — bit-identical, just slower).
+    objs = [render_capsule_unit(seg[0], seg[1], seg[2], seg[3], seg[4],
+                                seg[5], spec) for seg in fit_in.skeleton]
     L = len(idx)
     plane_off = (np.arange(nz) * m * n)[:, None]
     flat = (idx[None, :] + plane_off).ravel()
@@ -497,24 +684,18 @@ def fit_3d(fit_in: FitInput3D) -> FitResult:
     def blurred_bank(coeffs_vec: np.ndarray) -> list[np.ndarray]:
         """For each segment and each z-candidate, the blurred (nz,L) column.
 
-        Cost control: 3D cyclic convolution per segment per candidate (the
-        plan's "precompute per-(segment × z-candidate) blurred stacks once").
+        Delegates to `blurred_bank_columns` (plans/fit-speedups.md §4):
+        policy "full_box" is the legacy full-box loop (bit-identical);
+        "cluster" convolves each rod cluster on its own sub-box with the
+        cyclic-cropped PSF array (O1, measured ~9x on the bank).
         """
         coeffs = {int(j): float(c) for j, c in zip(modes, coeffs_vec)}
         psf = psf3d_cyclic(config, coeffs, nz, z_step,
                            model=fit_in.psf_model,
                            lambda_exc_um=fit_in.lambda_exc_nm / 1000.0)
-        bank: list[np.ndarray] = []
-        for s, seg in enumerate(fit_in.skeleton):
-            obj = render_capsule_unit(seg[0], seg[1], seg[2],
-                                      seg[3], seg[4], seg[5], spec)
-            cols = []
-            for dz in z_plane_int:
-                o = obj if dz == 0 else np.roll(obj, dz, axis=0)
-                col = cyclic3d(o, psf).reshape(nz, -1)[:, idx]
-                cols.append(col)
-            bank.append(cols)
-        return bank
+        return blurred_bank_columns(objs, psf, z_plane_int, idx,
+                                    idx_per_rod=idx_per_rod,
+                                    policy=fit_in.bank_policy)
 
     def solve_at(bank: list[np.ndarray], z_sel: np.ndarray):
         """Weighted per-plane-bg NNLS with column s = bank[s][z_sel[s]].
