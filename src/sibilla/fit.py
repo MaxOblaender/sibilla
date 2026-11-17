@@ -374,7 +374,9 @@ class FitInput3D:
     rng_seed: int = 0
     n_cd_sweeps: int = 2
     n_outer_sweeps: int = 3        # alternating (c | z) block iterations
-    bank_policy: str = "full_box"  # "full_box" (legacy) | "cluster" (O1, plan §4)
+    bank_policy: str = "cluster"   # "cluster" (default since 2026-11-17: gate
+                                   #   3 real + 11 synthetic PASS, plan §4.3)
+                                   # "full_box" = legacy bit-exact path
 
 
 def _capsule_objects(fit_in: "FitInput3D", z_off_plane: np.ndarray

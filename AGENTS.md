@@ -128,15 +128,14 @@ Cseresnyes' C# SIBILLA (`../sibilla_zoltan`, read-only reference — do not modi
   The 99%-energy margin fix exists in `scripts_extras/rod_fit*` / server
   runs but is NOT yet in the package. Weekend fit logs:
   nodeasb01 `/asbdata/moblaende26/zerniky/weekend_logs/`.
-- The fitter is single-threaded and slow on big boxes; performance work:
-  **O1 (cluster-grouped bank cropping) is implemented** behind
-  `FitInput3D.bank_policy` on `feat/fit-speedups` — "full_box" (default,
-  legacy bit-identical) vs "cluster" (opt-in; near-field exact to 1e-15,
-  measured 36.8× on the bank for spread clusters, 1.1× for tight ones —
-  `plans/fit-speedups.md` §4). Default flips to "cluster" only after the
-  real-cluster calibration (|ΔZ| < 0.01 waves on ≥10 synthetic + 3 real
-  clusters, plan §4.3). O2 (phase-ramp z-candidates) and O3 (parallelism)
-  are next and are where tight-cluster wins live.
+- The fitter's bank policy: **`cluster` (per-cluster sub-box convolution) is
+  the DEFAULT since 2026-11-17** on `feat/fit-speedups` — near-field exact to
+  ~1e-9, 1.7–1.8× faster end-to-end on spread clusters, bit-identical
+  fallback on tight ones (gate: 3 real + 11 synthetic, `plans/fit-speedups.md`
+  §4). Legacy exact path: `FitInput3D(bank_policy="full_box")`. NOTE: server
+  copies inherit the default only after the next rsync. O2 (phase-ramp
+  z-candidates) and O3 (parallelism) are next and are where tight-cluster
+  wins live.
 
 ## Compute servers (prefer these for anything heavy)
 

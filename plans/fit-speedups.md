@@ -1,10 +1,13 @@
 # Plan — Speeding up the Zernike fit (`fit_3d`)
 
-Status: **O1 implemented behind `FitInput3D.bank_policy`** ("full_box" =
-legacy default; "cluster" = opt-in until the real-cluster calibration passes,
-plan §4.3). O2–O5 not implemented. Measured numbers are from 2026-10-30
-(local + nodeasb01) on the real AF488 channel, confocal model; §4–§5 measured
-2026-11-16/17 on synthetic clusters (probe + nodeasb01g benchmark).
+Status: **O1 is the DEFAULT** (`FitInput3D.bank_policy = "cluster"` since
+2026-11-17, commit after a179b62). Gate passed: 3 real clusters (T/D_clean/
+E_clean, max |ΔZ| ≤ 1.9e-9, identical decisions, full_box arms reproduce the
+recorded campaign coefficients) + 11 synthetic fit-level A/Bs (7 real
+sub-box runs, 3 fallbacks, 1 corner-clamped sub-box; max |ΔZ| ≤ 4.6e-10).
+Legacy path stays available via `bank_policy="full_box"` (bit-identical).
+O2–O5 not implemented. Measured numbers: 2026-10-30 (real channel timings),
+2026-11-16/17 (probe, nodeasb01g benchmark, gate, synth batch).
 
 ## 0. Where the time goes (measured)
 
